@@ -1,13 +1,40 @@
 # Rogue Energy Sweep
 
-Experimental World of Warcraft: Forever addon that displays energy readiness directly on rogue action buttons. Four styles and two progress modes. Target interface: 16001 (Forever 1.60.1); live compatibility is not guaranteed.
+Customizable energy readiness indicators directly on your Rogue action buttons in **World of Warcraft: Forever**. See how close an ability is to becoming affordable without constantly looking at your energy bar.
 
-See [installation, options and known limitations](addon/RogueEnergySweep/README.md) and [changelog](CHANGELOG.md). Download the versioned ZIP from this repository's Releases page once published; extract `RogueEnergySweep` into `Interface/AddOns`, then `/reload` (restart if the client has not discovered the addon). Use `/resweep status` for diagnostics. An interface mismatch is a prompt to test, not proof of a break. No in-game internet update check is possible.
+**Experimental:** Targets interface 16001 (Forever 1.60.1). Live testing of every style and progress mode is still pending.
 
-## Maintenance
-- Update the TOC and Lua version, README and changelog together; change the supported interface only after checking the new client.
-- Run `lua tests/compatibility.lua` and `python scripts/package.py --version X.Y.Z --output dist` from the repository root. The compatibility test runs the actual diagnostic functions extracted from the addon; it does not test rendering or the live client. The original v0.3.0 simulation report is archived in the addon folder; its test harness was not included in the uploaded release.
-- Push changes to `main`, then push a new `vX.Y.Z` tag. GitHub Actions validates, packages, and publishes a release ZIP plus SHA-256 checksum. The action must have permission to create releases. Historical tags v0.1.0–v0.3.0 preserve the original packages as source; their old workflows do not publish releases.
-- Report issues with `/resweep status` output and reproduction steps. Do not post personal information.
+## Install and update
 
-Adapted from Rogue Energy Need by Vryllak and contributors under MIT. See [license](addon/RogueEnergySweep/LICENSE). Not an official Rogue Energy Need release.
+**WowUp (recommended):** Select your Forever client, choose Get Addons → Install from URL, and enter `https://github.com/JoBonacc/RogueEnergySweep`. The v0.5.0 and later releases are packaged for Forever detection. Enable auto-update if desired.
+
+**Manual:** Download the latest `RogueEnergySweep-<version>-forever.zip` from [Releases](https://github.com/JoBonacc/RogueEnergySweep/releases). For v0.4.0 use the ZIP without the Forever suffix. Do not use GitHub's source-code archives. Extract the `RogueEnergySweep` folder into `World of Warcraft/_forever_/Interface/AddOns/`. Replace the old addon folder when upgrading, then reload the UI or restart WoW if the addon is not detected. Saved variables are stored separately.
+
+## Features
+
+| Indicator | Behavior |
+| --- | --- |
+| Rising line | A horizontal stripe rises through the icon |
+| Bottom bar | A compact bar fills left to right |
+| Perimeter | Progress follows the icon's edge |
+| Radial sweep | A shaded sector clears as energy regenerates |
+
+Choose **energy-based** progress (fraction of the spell cost accumulated) or **countdown-based** progress (starts at zero after a detected spend). For example, a 45-energy ability with 15 energy left starts at 33% in energy mode or 0% in countdown mode. Both follow actual energy, not a fixed timer. Countdown is experimental and may fall back to energy mode.
+
+Type `/resweep` to change style, progress mode, color, opacity, thickness, tint and combat-only behavior. The panel includes a simulated preview and a test on your bars. Existing spell cooldowns and the global cooldown are not modified.
+
+## Support and compatibility
+
+Blizzard action bars are the primary target. Bartender4, Dominos and ElvUI are best-effort; macro and talent-modified cost detection depends on the client API. Protected-value rendering and countdown behavior need live verification. Use `/resweep status` to inspect the renderer, fallback and interface compatibility. An interface warning is a prompt to test, not proof of breakage.
+
+See [full options and limitations](addon/RogueEnergySweep/README.md), [changelog](CHANGELOG.md), and [report a bug or suggest a feature](https://github.com/JoBonacc/RogueEnergySweep/issues/new/choose). Include client interface, action bar addon, style, progress mode, and steps to reproduce. Remove personal information from diagnostic output.
+
+## Development
+
+Run `lua tests/compatibility.lua` and `python scripts/package.py --version X.Y.Z --output dist` from the repository root. The compatibility test exercises the actual diagnostic functions, not live rendering. The historical v0.3.0 simulation harness was not retained; its report is archived with the addon.
+
+Update the TOC, Lua version, addon README and changelog together. Change the supported interface only after checking the client. The packager generates a matching Forever-specific TOC and release ZIP plus SHA-256 checksum. Push changes to main and then push a single new `vX.Y.Z` tag to trigger GitHub Actions. Historical tags preserve previous versions.
+
+## License and attribution
+
+Adapted from [Rogue Energy Need](https://www.curseforge.com/wow/addons/rogue-energy-need) 0.2.1 by Vryllak and Rogue Energy Need contributors, under the [MIT License](LICENSE). Original copyright and license notices are retained in the addon package. This is a separate, unofficial derivative.

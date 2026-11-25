@@ -1,4 +1,4 @@
-# Rogue Energy Sweep v0.4.0 — experimental
+# Rogue Energy Sweep v0.5.0 — experimental
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
@@ -27,7 +27,7 @@ All four indicators support two progress modes. Energy-based (default) shows the
 - `/resweep reset`: restore defaults.
 
 ## Patch and update alerts
-At login the addon compares the fourth return from `GetBuildInfo()` with its target interface (16001). A mismatch warns once per distinct interface/target pair in saved variables, without disabling the addon. `/resweep status` always reports the current compatibility state when available. A matching interface is not proof of live compatibility; patches can change behavior without changing the interface number. WoW addons cannot query GitHub for updates themselves. Check the repository Releases page or configure an external updater after the repository is published.
+At login the addon compares the fourth return from `GetBuildInfo()` with its target interface (16001). A mismatch warns once per distinct interface/target pair in saved variables, without disabling the addon. `/resweep status` always reports the current compatibility state when available. A matching interface is not proof of live compatibility; patches can change behavior without changing the interface number. WoW addons cannot query GitHub for updates themselves. Check the repository Releases page or use WowUp's Install from URL with https://github.com/JoBonacc/RogueEnergySweep for external updates.
 
 ## Compatibility and limitations
 Blizzard action buttons are the primary target; Bartender4, Dominos, and ElvUI are best effort. Macro support depends on whether the client exposes the underlying spell through `C_ActionBar.GetSpell`. Cost changes depend on the client exposing public costs. Maximum energy defaults to 100 until a public value is available. New non-main-bar buttons may wait for combat to end. Resource events are coalesced at 30 ms; smoothness depends on the client. In-game visual layout, the rising line anchor, cooldown layering, full radial geometry, native secret-value alpha acceptance and actual taint safety are not confirmed by simulation. If a renderer fails, the addon tries the bottom bar; if native alpha or value rendering fails there too, it hides the overlay. Run `/resweep status` and capture any Lua error if something is missing or behaving unexpectedly.
@@ -38,4 +38,4 @@ Countdown implementation: public energy uses changes in the energy fraction to d
 
 Historical validation of v0.3.0 (not rerun for v0.4.0): 26 simulated Lua tests passed in a Lua 5.4 runtime, including existing action discovery behavior, all four modes with simulated secret values, clearing at readiness, options registration and controls, settings updates, preview thresholds, both progress modes, protected snapshot normalization, restart behavior, and safe fallback. This is not a live-client test.
 
-Adapted from Rogue Energy Need 0.2.1 by Vryllak / Rogue Energy Need contributors, MIT licensed. Original license included. Separate experimental derivative, not an official Rogue Energy Need release.
+Adapted from [Rogue Energy Need](https://www.curseforge.com/wow/addons/rogue-energy-need) 0.2.1 by Vryllak / Rogue Energy Need contributors, MIT licensed. Original license included. Separate experimental derivative, not an official Rogue Energy Need release.

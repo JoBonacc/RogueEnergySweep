@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.0
+- Release ZIP now uses the `-forever.zip` suffix and includes a matching Forever-specific TOC for WowUp detection.
+- Added root MIT license, direct upstream attribution, and public installation and support documentation.
+- Retained existing issue templates and interface target 16001. Rendering behavior is unchanged; full live-client testing remains pending.
+
 ## v0.4.0
 - Added login-time interface mismatch warning and compatibility details to `/resweep status`.
 - Warnings are deduplicated in saved variables; mismatches do not disable the addon.
