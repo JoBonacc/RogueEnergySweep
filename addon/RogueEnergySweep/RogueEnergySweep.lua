@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.5.0 (WoW Forever)
+-- Rogue Energy Sweep 0.6.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -590,6 +590,33 @@ local function CheckCompatibility(notify)
     Say("Compatibility: client interface " .. current .. " (" .. state .. " than target " .. expected .. "). Addon remains enabled; test your overlays and check for updates.")
 end
 
+local KNOWN_BUILD = 71091
+-- Set only after recording a successful live-client smoke test for this release.
+local LAST_TESTED_BUILD = nil
+local function ClientBuild()
+    if type(GetBuildInfo) ~= "function" then return nil end
+    local ok, _, build = pcall(GetBuildInfo)
+    if not ok or IsSecret(build) then return nil end
+    if type(build) == "string" and build:match("^%d+$") then build = tonumber(build) end
+    build = SafeNumber(build)
+    if not build or build <= 0 or build ~= math.floor(build) then return nil end
+    return build
+end
+local function CheckBuild(notify)
+    local build = ClientBuild()
+    if not notify then
+        Say("Build: client " .. tostring(build or "unavailable") .. " | reviewed baseline " .. KNOWN_BUILD .. " | last live-tested: " .. tostring(LAST_TESTED_BUILD or "not recorded"))
+        if build and build > KNOWN_BUILD then Say("Build newer than reviewed baseline; test overlays and check for updates.") end
+        return
+    end
+    if not build then return end
+    if build <= KNOWN_BUILD then DB.lastBuildWarning = nil; return end
+    local key = tostring(KNOWN_BUILD) .. ":" .. tostring(build)
+    if DB.lastBuildWarning == key then return end
+    DB.lastBuildWarning = key
+    Say("New client build " .. build .. " (reviewed baseline " .. KNOWN_BUILD .. "). Addon remains enabled; run /resweep status and test overlays.")
+end
+
 local function Status()
     local count, radial, bar, native, rising, perimeter = 0,0,0,0,0,0
     for _, record in ipairs(records) do
@@ -602,11 +629,12 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.5.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.6.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("last API error: " .. lastError)
     CheckCompatibility(false)
+    CheckBuild(false)
 end
 local optionsPanel, settingsCategory, refreshPanel
 local function ApplySettings()
@@ -776,7 +804,7 @@ events:SetScript("OnEvent", function(_, event, ...)
         return
     end
     if not DB then return end
-    if event == "PLAYER_ENTERING_WORLD" then CheckCompatibility(true); RequestScan()
+    if event == "PLAYER_ENTERING_WORLD" then CheckCompatibility(true); CheckBuild(true); RequestScan()
     elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_POWER_UPDATE" then
         local unit, power = ...
         if DB.enabled and unit == "player" and not IsSecret(power) and power == "ENERGY" then RequestUpdate() end

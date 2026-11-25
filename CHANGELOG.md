@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.0
+- Detect new client builds independently of interface changes; deduplicate warnings and keep overlays enabled.
+- Display running build, reviewed baseline 71091 and last live-tested build (not recorded) in status output.
+- Added mocked API contract regression tests and live-client compatibility checklist.
+- No changes to rendering behavior. Reviewed baseline is not a claim of live compatibility.
+
 ## v0.5.0
 - Release ZIP now uses the `-forever.zip` suffix and includes a matching Forever-specific TOC for WowUp detection.
 - Added root MIT license, direct upstream attribution, and public installation and support documentation.

@@ -1,4 +1,4 @@
-# Rogue Energy Sweep v0.5.0 — experimental
+# Rogue Energy Sweep v0.6.0 — experimental
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
@@ -27,7 +27,7 @@ All four indicators support two progress modes. Energy-based (default) shows the
 - `/resweep reset`: restore defaults.
 
 ## Patch and update alerts
-At login the addon compares the fourth return from `GetBuildInfo()` with its target interface (16001). A mismatch warns once per distinct interface/target pair in saved variables, without disabling the addon. `/resweep status` always reports the current compatibility state when available. A matching interface is not proof of live compatibility; patches can change behavior without changing the interface number. WoW addons cannot query GitHub for updates themselves. Check the repository Releases page or use WowUp's Install from URL with https://github.com/JoBonacc/RogueEnergySweep for external updates.
+At login the addon also compares the client build (second GetBuildInfo return) with reviewed baseline 71091 and warns once per newer build. /resweep status displays the running build, baseline and last fully live-tested build (not recorded). At login the addon compares the fourth return from `GetBuildInfo()` with its target interface (16001). A mismatch warns once per distinct interface/target pair in saved variables, without disabling the addon. `/resweep status` always reports the current compatibility state when available. A matching interface is not proof of live compatibility; patches can change behavior without changing the interface number. WoW addons cannot query GitHub for updates themselves. Check the repository Releases page or use WowUp's Install from URL with https://github.com/JoBonacc/RogueEnergySweep for external updates.
 
 ## Compatibility and limitations
 Blizzard action buttons are the primary target; Bartender4, Dominos, and ElvUI are best effort. Macro support depends on whether the client exposes the underlying spell through `C_ActionBar.GetSpell`. Cost changes depend on the client exposing public costs. Maximum energy defaults to 100 until a public value is available. New non-main-bar buttons may wait for combat to end. Resource events are coalesced at 30 ms; smoothness depends on the client. In-game visual layout, the rising line anchor, cooldown layering, full radial geometry, native secret-value alpha acceptance and actual taint safety are not confirmed by simulation. If a renderer fails, the addon tries the bottom bar; if native alpha or value rendering fails there too, it hides the overlay. Run `/resweep status` and capture any Lua error if something is missing or behaving unexpectedly.

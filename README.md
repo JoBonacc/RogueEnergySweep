@@ -27,11 +27,13 @@ Type `/resweep` to change style, progress mode, color, opacity, thickness, tint 
 
 Blizzard action bars are the primary target. Bartender4, Dominos and ElvUI are best-effort; macro and talent-modified cost detection depends on the client API. Protected-value rendering and countdown behavior need live verification. Use `/resweep status` to inspect the renderer, fallback and interface compatibility. An interface warning is a prompt to test, not proof of breakage.
 
+Build alerts detect newer builds even when the interface number is unchanged. See [live compatibility checklist and review record](docs/compatibility.md). No complete live test is recorded for this release.
+
 See [full options and limitations](addon/RogueEnergySweep/README.md), [changelog](CHANGELOG.md), and [report a bug or suggest a feature](https://github.com/JoBonacc/RogueEnergySweep/issues/new/choose). Include client interface, action bar addon, style, progress mode, and steps to reproduce. Remove personal information from diagnostic output.
 
 ## Development
 
-Run `lua tests/compatibility.lua` and `python scripts/package.py --version X.Y.Z --output dist` from the repository root. The compatibility test exercises the actual diagnostic functions, not live rendering. The historical v0.3.0 simulation harness was not retained; its report is archived with the addon.
+Run `lua tests/compatibility.lua` and `lua tests/api_contracts.lua` and `python scripts/package.py --version X.Y.Z --output dist` from the repository root. The compatibility test exercises the actual diagnostic functions, not live rendering. The historical v0.3.0 simulation harness was not retained; its report is archived with the addon.
 
 Update the TOC, Lua version, addon README and changelog together. Change the supported interface only after checking the client. The packager generates a matching Forever-specific TOC and release ZIP plus SHA-256 checksum. Push changes to main and then push a single new `vX.Y.Z` tag to trigger GitHub Actions. Historical tags preserve previous versions.
 
