@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.1
+- Restore the original radial texture geometry by removing explicit start/end offsets; targeted candidate fix for invisible radial overlays on build 71139.
+- Add a regression guard for the default radial geometry. Other rendering and countdown normalization are unchanged.
+- Record partial live test results for v0.6.0. This fix is not yet live-tested.
+
 ## v0.6.0
 - Detect new client builds independently of interface changes; deduplicate warnings and keep overlays enabled.
 - Display running build, reviewed baseline 71091 and last live-tested build (not recorded) in status output.

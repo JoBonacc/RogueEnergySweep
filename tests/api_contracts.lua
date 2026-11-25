@@ -42,3 +42,11 @@ p,d=countdown(group,45,1,0); near(p,1); near(d,0)
 p,d=countdown(group,45,.2,.8); near(p,0); near(d,1)
 env.C_CurveUtil.CreateCurve=function() error("missing curve") end; assert(make(45,"fill")==nil)
 print("PASS: mock curve readiness, cost discovery, protected values, missing API fallback, public countdown")
+
+-- Keep the original native radial geometry; explicit 0/1 offsets were associated
+-- with an invisible radial overlay in live testing of v0.6.0.
+local radialInit=section("local function MakeOverlay","local function RebuildGroups")
+assert(not radialInit:find("SetRadialProgressBarStartOffset",1,true))
+assert(not radialInit:find("SetRadialProgressBarEndOffset",1,true))
+assert(radialInit:find("pcall(radial.SetRadialProgressBarPercent, radial, 0)",1,true))
+print("PASS: default radial geometry regression guard (not a visual rendering test)")

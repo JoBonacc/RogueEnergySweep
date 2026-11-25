@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.6.0 (WoW Forever)
+-- Rogue Energy Sweep 0.6.1 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -232,8 +232,8 @@ local function MakeOverlay(button, preview)
     radial:SetTexture(WHITE)
     local native = type(radial.SetRadialProgressBarPercent) == "function"
     if native then
-        if radial.SetRadialProgressBarStartOffset then pcall(radial.SetRadialProgressBarStartOffset, radial, 0) end
-        if radial.SetRadialProgressBarEndOffset then pcall(radial.SetRadialProgressBarEndOffset, radial, 1) end
+        -- Preserve the native full-circle geometry used in v0.1.0.
+        -- Explicit endpoints 0 and 1 may collapse to the same angle.
         if radial.SetRadialProgressBarReverse then pcall(radial.SetRadialProgressBarReverse, radial, true) end
         native = pcall(radial.SetRadialProgressBarPercent, radial, 0)
     end
@@ -629,7 +629,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.6.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.6.1 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("last API error: " .. lastError)
