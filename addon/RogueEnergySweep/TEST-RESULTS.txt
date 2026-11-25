@@ -1,0 +1,16 @@
+PASS initial sweep and zero cost hidden
+PASS ready zero / empty full
+PASS secret curve passthrough in combat
+PASS fallback if radial rejects secret
+PASS secret curve failure clears overlay
+PASS public fallback on curve failure
+PASS in-combat page change including previously empty button
+PASS cost and max energy changes
+PASS unreadable cost and recovery
+PASS cost above max energy
+PASS coalesced energy events do not scan action bars
+PASS mode switches and disable
+PASS status and out-of-combat demo
+PASS slot removal clears stale overlay
+PASS new optional bar without radial API falls back
+TOTAL 15 tests passed
