@@ -4,6 +4,12 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.7.0, without v)'
+        required: true
+        type: string
 permissions:
   contents: read
 jobs:
@@ -19,22 +25,45 @@ jobs:
           lua5.3 tests/compatibility.lua
           lua5.3 tests/api_contracts.lua
       - name: Package validation
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           version=$(sed -n 's/^## Version: //p' addon/RogueEnergySweep/RogueEnergySweep.toc | tr -d '\r')
           python3 scripts/package.py --version "$version"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then test "$GITHUB_REF_NAME" = "v$version"; fi
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            test "$GITHUB_REF" = refs/heads/main
+            if [[ "$REQUESTED_VERSION" != "$version" ]]; then
+              echo "::error::Requested version must match the TOC version ($version)."
+              exit 1
+            fi
+          fi
   release:
     needs: validate
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Package and publish tagged release
+      - name: Package and publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          python3 scripts/package.py --version "$version"
-          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "Rogue Energy Sweep $GITHUB_REF_NAME" --notes-file CHANGELOG.md
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            version="$REQUESTED_VERSION"
+            tag="v$version"
+            python3 scripts/package.py --version "$version"
+            existing=$(git ls-remote --tags origin "refs/tags/$tag")
+            if [[ -n "$existing" ]]; then
+              echo "::error::Tag $tag already exists; choose a new version. No existing release will be changed."
+              exit 1
+            fi
+            gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "Rogue Energy Sweep $tag" --notes-file CHANGELOG.md
+          else
+            version="${GITHUB_REF_NAME#v}"
+            python3 scripts/package.py --version "$version"
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "Rogue Energy Sweep $GITHUB_REF_NAME" --notes-file CHANGELOG.md
+          fi
