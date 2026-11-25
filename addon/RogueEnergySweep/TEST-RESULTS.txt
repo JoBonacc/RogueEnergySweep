@@ -1,3 +1,5 @@
+Historical v0.3.0 simulation report (not rerun for v0.4.0).
+
 PASS initial sweep and zero cost hidden
 PASS ready zero / empty full
 PASS secret curve passthrough in combat

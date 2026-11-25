@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.3.0 (WoW Forever)
+-- Rogue Energy Sweep 0.4.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -559,6 +559,37 @@ local function RequestScan()
     C_Timer.After(0.10, function() rescanScheduled = false; ScanButtons(); Update() end)
 end
 
+-- Compatibility diagnostics: GetBuildInfo returns the interface number as its fourth result.
+-- An interface mismatch warrants testing, not automatic disabling.
+local SUPPORTED_INTERFACE = 16001
+local function CompatibilityStatus()
+    if type(GetBuildInfo) ~= "function" then return "unknown", nil end
+    local ok, _, _, _, interface = pcall(GetBuildInfo)
+    local current = ok and SafeNumber(interface) or nil
+    if not current or current <= 0 or current ~= math.floor(current) then return "unknown", nil end
+    if current == SUPPORTED_INTERFACE then return "match", current end
+    return current > SUPPORTED_INTERFACE and "newer" or "older", current
+end
+local function CheckCompatibility(notify)
+    local state, current = CompatibilityStatus()
+    local expected = tostring(SUPPORTED_INTERFACE)
+    if state == "unknown" then
+        if not notify then Say("Compatibility: client interface unavailable; target " .. expected) end
+        return
+    end
+    if state == "match" then
+        if notify then DB.lastInterfaceWarning = nil
+        else Say("Compatibility: interface " .. current .. " matches target " .. expected .. " (not a live-test guarantee).") end
+        return
+    end
+    if notify then
+        local key = expected .. ":" .. tostring(current)
+        if DB.lastInterfaceWarning == key then return end
+        DB.lastInterfaceWarning = key
+    end
+    Say("Compatibility: client interface " .. current .. " (" .. state .. " than target " .. expected .. "). Addon remains enabled; test your overlays and check for updates.")
+end
+
 local function Status()
     local count, radial, bar, native, rising, perimeter = 0,0,0,0,0,0
     for _, record in ipairs(records) do
@@ -571,10 +602,11 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.3.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.4.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("last API error: " .. lastError)
+    CheckCompatibility(false)
 end
 local optionsPanel, settingsCategory, refreshPanel
 local function ApplySettings()
@@ -744,7 +776,7 @@ events:SetScript("OnEvent", function(_, event, ...)
         return
     end
     if not DB then return end
-    if event == "PLAYER_ENTERING_WORLD" then RequestScan()
+    if event == "PLAYER_ENTERING_WORLD" then CheckCompatibility(true); RequestScan()
     elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_POWER_UPDATE" then
         local unit, power = ...
         if DB.enabled and unit == "player" and not IsSecret(power) and power == "ENERGY" then RequestUpdate() end
