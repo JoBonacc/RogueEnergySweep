@@ -13,4 +13,9 @@ PASS mode switches and disable
 PASS status and out-of-combat demo
 PASS slot removal clears stale overlay
 PASS new optional bar without radial API falls back
-TOTAL 15 tests passed
+PASS options open
+PASS new modes accept secrets, hide at readiness
+PASS linear fill increases with energy
+PASS default mode and options reset
+PASS options controls switch styles and persist changes
+TOTAL 20 tests passed

@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: Rogue Energy Sweep
-## Notes: Energy deficit swipe on Rogue action buttons. Experimental Forever build.
+## Notes: Energy readiness indicators on Rogue action buttons. Experimental Forever build.
 ## Author: Rogue Energy Sweep; based on Rogue Energy Need by Vryllak (MIT)
-## Version: 0.1.0
+## Version: 0.2.0
 ## SavedVariables: RogueEnergySweepDB
 ## OptionalDeps: Bartender4, Dominos, ElvUI
 

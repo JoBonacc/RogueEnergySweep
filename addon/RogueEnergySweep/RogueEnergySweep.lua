@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.1.0 (WoW Forever)
+-- Rogue Energy Sweep 0.2.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -27,14 +27,18 @@ local function SafeNumber(value)
     return value
 end
 
+local MODES = {bar=true, rising=true, perimeter=true, radial=true, auto=true}
+local COLORS = {amber={1,0.78,0.16}, white={1,1,1}, cyan={0.22,0.85,1}, green={0.3,1,0.35}, black={0,0,0}}
 local function InitDB()
     if type(RogueEnergySweepDB) ~= "table" then RogueEnergySweepDB = {} end
     DB = RogueEnergySweepDB
     if type(DB.enabled) ~= "boolean" then DB.enabled = true end
     DB.combatOnly = DB.combatOnly == true
-    if DB.mode ~= "bar" and DB.mode ~= "radial" then DB.mode = "auto" end
-    if DB.color ~= "black" then DB.color = "amber" end
-    DB.opacity = math.max(0.15, math.min(0.90, SafeNumber(DB.opacity) or 0.65))
+    if not MODES[DB.mode] or DB.mode == "auto" then DB.mode = "rising" end
+    if not COLORS[DB.color] then DB.color = "amber" end
+    DB.thickness = math.floor(math.max(2, math.min(8, SafeNumber(DB.thickness) or 4))+0.5)
+    DB.tint = DB.tint ~= false
+    DB.opacity = math.max(0.15, math.min(1.00, SafeNumber(DB.opacity) or 0.90))
 end
 
 local function RefreshMaxEnergy()
@@ -46,7 +50,7 @@ end
 
 -- x = energy / maximum energy; y = fraction of ability cost still missing.
 -- The native evaluator can consume a secret resource and return a secret result.
-local function MakeCurve(cost)
+local function MakeCurve(cost, kind)
     if not C_CurveUtil or not C_CurveUtil.CreateCurve then return nil end
     local ok, curve = pcall(function()
         local c = C_CurveUtil.CreateCurve()
@@ -54,9 +58,22 @@ local function MakeCurve(cost)
             c:SetType(Enum.LuaCurveType.Linear)
         end
         local threshold = math.min(1, cost / lastMaxEnergy)
-        c:AddPoint(0, 1)
-        c:AddPoint(threshold, math.max(0, 1 - lastMaxEnergy / cost))
-        if threshold < 1 then c:AddPoint(1, 0) end
+        if kind == "visibility" then
+            if cost > lastMaxEnergy then c:AddPoint(0, 1); c:AddPoint(1, 1)
+            else
+                c:AddPoint(0, 1)
+                local edge = math.max(0, threshold - 0.5 / lastMaxEnergy)
+                if edge > 0 then c:AddPoint(edge, 1) end
+                c:AddPoint(threshold, 0)
+                if threshold < 1 then c:AddPoint(1, 0) end
+            end
+        else
+            local fill = kind == "fill"
+            c:AddPoint(0, fill and 0 or 1)
+            local ratio = math.min(1, lastMaxEnergy / cost)
+            c:AddPoint(threshold, fill and ratio or 1-ratio)
+            if threshold < 1 then c:AddPoint(1, fill and 1 or 0) end
+        end
         return c
     end)
     return ok and curve or nil
@@ -143,6 +160,11 @@ end
 local function Clear(record)
     record.radial:Hide()
     record.bar:Hide()
+    record.rising:Hide()
+    if record.line then record.line:Hide() end
+    record.riseTint:Hide()
+    for _, edge in ipairs(record.edges) do edge:Hide() end
+    record.track:Hide()
     record.mode = nil
 end
 
@@ -150,46 +172,97 @@ local function ClearAll()
     for _, record in pairs(overlays) do Clear(record) end
 end
 
+local WHITE = "Interface\\Buttons\\WHITE8X8"
 local function Style(record)
-    local r, g, b = 0.29, 0.16, 0.025
-    if DB.color == "black" then r, g, b = 0, 0, 0 end
-    record.radial:SetVertexColor(r, g, b, DB.opacity)
-    -- Thin gold deficit bar is intentionally distinct from the cooldown swipe.
-    record.bar:SetStatusBarColor(1, 0.67, 0.14, DB.opacity)
+    local color = COLORS[DB.color] or COLORS.amber
+    local r,g,b = color[1],color[2],color[3]
+    -- Black remains useful for radial shading; use a visible light fill for linear styles.
+    local lr,lg,lb = r,g,b
+    if DB.color == "black" then lr,lg,lb = 1,1,1 end
+    record.radial:SetVertexColor(r,g,b,DB.opacity * 0.65)
+    record.bar:SetStatusBarColor(lr,lg,lb,DB.opacity)
+    record.bar:SetHeight(DB.thickness)
+    record.track:SetHeight(DB.thickness)
+    record.track:SetVertexColor(0,0,0,0.65)
+    record.rising:SetStatusBarColor(lr,lg,lb,record.line and 0 or DB.opacity * 0.5)
+    if record.line then
+        record.line:SetVertexColor(lr,lg,lb,DB.opacity)
+        record.line:SetHeight(DB.thickness)
+    end
+    -- Optional low-opacity fill behind the bright leading stripe.
+    record.riseTint:SetStatusBarColor(lr,lg,lb,DB.tint and DB.opacity * 0.15 or 0)
+    for i,edge in ipairs(record.edges) do
+        edge:SetStatusBarColor(lr,lg,lb,DB.opacity)
+        if i%2==1 then edge:SetHeight(DB.thickness) else edge:SetWidth(DB.thickness) end
+    end
 end
 
-local function MakeOverlay(button)
-    if overlays[button] then return overlays[button] end
+local function NewBar(frame, low, high, orientation, reverse)
+    local bar = CreateFrame("StatusBar", nil, frame)
+    bar:EnableMouse(false)
+    bar:SetStatusBarTexture(WHITE)
+    bar:SetMinMaxValues(low,high)
+    bar:SetValue(low)
+    if bar.SetOrientation then bar:SetOrientation(orientation or "HORIZONTAL") end
+    if bar.SetReverseFill then bar:SetReverseFill(reverse or false) end
+    return bar
+end
+
+local function MakeOverlay(button, preview)
+    if not preview and overlays[button] then return overlays[button] end
     local frame = CreateFrame("Frame", nil, button)
     local icon = button.icon or button.Icon
     if not icon or IsSecret(icon) or not pcall(frame.SetAllPoints, frame, icon) then
-        frame:ClearAllPoints()
-        frame:SetAllPoints(button)
+        frame:ClearAllPoints(); frame:SetAllPoints(button)
     end
     frame:EnableMouse(false)
     frame:SetFrameLevel(button:GetFrameLevel() + 1)
     local radial = frame:CreateTexture(nil, "ARTWORK")
     radial:SetAllPoints(frame)
-    radial:SetTexture("Interface\\Buttons\\WHITE8X8")
+    radial:SetTexture(WHITE)
     local native = type(radial.SetRadialProgressBarPercent) == "function"
     if native then
-        -- Full circle. The documented default origin is six o'clock.
+        if radial.SetRadialProgressBarStartOffset then pcall(radial.SetRadialProgressBarStartOffset, radial, 0) end
+        if radial.SetRadialProgressBarEndOffset then pcall(radial.SetRadialProgressBarEndOffset, radial, 1) end
         if radial.SetRadialProgressBarReverse then pcall(radial.SetRadialProgressBarReverse, radial, true) end
         native = pcall(radial.SetRadialProgressBarPercent, radial, 0)
     end
-    local bar = CreateFrame("StatusBar", nil, frame)
-    bar:EnableMouse(false)
-    bar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 1, 1)
-    bar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
-    bar:SetHeight(4)
-    bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-    bar:SetMinMaxValues(0, 1)
-    bar:SetValue(0)
-    if bar.SetReverseFill then bar:SetReverseFill(true) end
-    local record = {button=button, frame=frame, radial=radial, bar=bar, native=native}
-    overlays[button] = record
-    Style(record)
-    Clear(record)
+    local bar = NewBar(frame,0,1)
+    bar:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",1,1)
+    bar:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",-1,1)
+    local track = frame:CreateTexture(nil,"BACKGROUND")
+    track:SetTexture(WHITE)
+    track:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",1,1)
+    track:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",-1,1)
+    local tint = NewBar(frame,0,1,"VERTICAL")
+    tint:SetAllPoints(frame)
+    local rising = NewBar(frame,0,1,"VERTICAL")
+    rising:SetAllPoints(frame)
+    rising:SetFrameLevel(frame:GetFrameLevel()+2)
+    local line
+    if rising.GetStatusBarTexture then
+        local ok, result = pcall(function()
+            local fillTexture = rising:GetStatusBarTexture()
+            local stripe = rising:CreateTexture(nil,"OVERLAY")
+            stripe:SetTexture(WHITE)
+            stripe:SetPoint("TOPLEFT",fillTexture,"TOPLEFT",0,0)
+            stripe:SetPoint("TOPRIGHT",fillTexture,"TOPRIGHT",0,0)
+            return stripe
+        end)
+        if ok then line=result end
+    end
+    local edges = {}
+    for i=1,4 do
+        local edge = NewBar(frame,(i-1)/4,i/4,i%2==1 and "HORIZONTAL" or "VERTICAL",i==2 or i==3)
+        edges[i]=edge
+    end
+    edges[1]:SetPoint("TOPLEFT",frame,"TOPLEFT",0,0); edges[1]:SetPoint("TOPRIGHT",frame,"TOPRIGHT",0,0)
+    edges[2]:SetPoint("TOPRIGHT",frame,"TOPRIGHT",0,0); edges[2]:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",0,0)
+    edges[3]:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",0,0); edges[3]:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",0,0)
+    edges[4]:SetPoint("TOPLEFT",frame,"TOPLEFT",0,0); edges[4]:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",0,0)
+    local record = {button=button,frame=frame,radial=radial,bar=bar,native=native,track=track,rising=rising,riseTint=tint,line=line,edges=edges}
+    if not preview then overlays[button]=record end
+    Style(record); Clear(record)
     return record
 end
 
@@ -201,7 +274,7 @@ local function RebuildGroups()
         if cost and cost > 0 then
             local group = groups[cost]
             if not group then
-                group = {curve=MakeCurve(cost), records={}}
+                group = {curve=MakeCurve(cost,"fill"), deficit=MakeCurve(cost,"deficit"), visibility=MakeCurve(cost,"visibility"), records={}}
                 groups[cost] = group
             end
             group.records[#group.records+1] = record
@@ -301,60 +374,73 @@ local function ErrorNote(value)
     else lastError = "native widget rejected value" end
 end
 
-local function Paint(record, value)
-    -- Never compare/branch on protected power or on a widget's secret properties.
-    if DB.mode ~= "bar" and record.native then
-        local ok, err = pcall(record.radial.SetRadialProgressBarPercent, record.radial, value)
-        if ok then
-            if record.mode ~= "radial" then record.bar:Hide(); record.radial:Show(); record.mode = "radial" end
-            return
+local function Paint(record, fill, deficit, visibility)
+    local mode = DB.mode == "auto" and "radial" or DB.mode
+    -- Only native widgets consume secret values; never inspect their results.
+    local function Apply(selected)
+        if record.mode ~= selected then Clear(record) end
+        record.frame:SetAlpha(visibility)
+        if selected == "radial" then
+            if not record.native then error("radial API unavailable") end
+            record.radial:SetRadialProgressBarPercent(deficit)
+            record.radial:Show()
+        elseif selected == "bar" then
+            record.bar:SetValue(fill); record.track:Show(); record.bar:Show()
+        elseif selected == "rising" then
+            record.riseTint:SetValue(fill); record.rising:SetValue(fill)
+            record.riseTint:Show(); record.rising:Show(); if record.line then record.line:Show() end
+        elseif selected == "perimeter" then
+            for _,edge in ipairs(record.edges) do edge:SetValue(fill); edge:Show() end
         end
-        ErrorNote(err)
+        record.mode = selected
     end
-    if DB.mode ~= "radial" then
-        local ok, err = pcall(record.bar.SetValue, record.bar, value)
-        if ok then
-            if record.mode ~= "bar" then record.radial:Hide(); record.bar:Show(); record.mode = "bar" end
-            return
-        end
-        ErrorNote(err)
-    end
-    Clear(record)
+    local ok,err = pcall(Apply,mode)
+    if ok then return end
+    ErrorNote(err); Clear(record)
+    ok,err = pcall(Apply,"bar")
+    if ok then return end
+    ErrorNote(err); Clear(record)
+end
+
+local function Evaluate(curve)
+    if not curve or type(UnitPowerPercent) ~= "function" then return nil,false end
+    local ok,result = pcall(UnitPowerPercent,"player",ENERGY,false,curve)
+    if not ok then ErrorNote(result); return nil,false end
+    if IsSecret(result) then return result,true,"native curve (secret)" end
+    if SafeNumber(result) then return result,true,"native curve (public)" end
+    return nil,false
 end
 
 local function Update()
     updatePending = false
-    if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then
-        ClearAll(); return
-    end
-    local publicEnergy, triedPublic = nil, false
+    if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); return end
+    local publicEnergy,triedPublic = nil,false
     lastSource = "no tracked energy abilities"
-    for cost, group in pairs(groups) do
-        local value, valid
+    for cost,group in pairs(groups) do
+        local fill,deficit,visibility,valid
         if demo then
-            value, valid, lastSource = 0.5, true, "demo (50%)"
-        elseif group.curve and type(UnitPowerPercent) == "function" then
-            local ok, result = pcall(UnitPowerPercent, "player", ENERGY, false, group.curve)
-            if ok then
-                if IsSecret(result) then value, valid, lastSource = result, true, "native curve (secret)"
-                elseif SafeNumber(result) then value, valid, lastSource = result, true, "native curve (public)" end
-            else ErrorNote(result) end
-        end
-        if not valid and not demo then
-            if not triedPublic then
-                triedPublic = true
-                if type(UnitPower) == "function" then
-                    local ok, result = pcall(UnitPower, "player", ENERGY)
-                    if ok then publicEnergy = SafeNumber(result) end
+            fill,deficit,visibility,valid,lastSource = 0.5,0.5,1,true,"demo (50%)"
+        else
+            local a,b,c,source
+            fill,a,source = Evaluate(group.curve)
+            visibility,b = Evaluate(group.visibility)
+            if DB.mode == "radial" or DB.mode == "auto" then deficit,c = Evaluate(group.deficit) else c=true end
+            valid=a and b and c
+            if valid then lastSource=source end
+            if not valid then
+                if not triedPublic then
+                    triedPublic=true
+                    if type(UnitPower)=="function" then local ok,result=pcall(UnitPower,"player",ENERGY); if ok then publicEnergy=SafeNumber(result) end end
+                end
+                if publicEnergy then
+                    fill=math.max(0,math.min(1,publicEnergy/cost)); deficit=1-fill
+                    visibility=publicEnergy<cost and 1 or 0
+                    valid,lastSource=true,"public energy fallback"
                 end
             end
-            if publicEnergy then
-                value = math.max(0, math.min(1, (cost-publicEnergy)/cost))
-                valid, lastSource = true, "public energy fallback"
-            end
         end
-        for _, record in ipairs(group.records) do
-            if valid then Paint(record, value) else Clear(record); lastSource = "energy unavailable" end
+        for _,record in ipairs(group.records) do
+            if valid then Paint(record,fill,deficit,visibility) else Clear(record); lastSource="energy unavailable" end
         end
     end
 end
@@ -382,27 +468,136 @@ local function RequestScan()
 end
 
 local function Status()
-    local count, radial, bar, native = 0,0,0,0
+    local count, radial, bar, native, rising, perimeter = 0,0,0,0,0,0
     for _, record in ipairs(records) do
         if record.cost and record.cost > 0 then
             count = count + 1
             if record.native then native = native + 1 end
             if record.mode == "radial" then radial = radial + 1 end
             if record.mode == "bar" then bar = bar + 1 end
+            if record.mode == "rising" then rising = rising + 1 end
+            if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.1.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.2.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode)
     Say("last API error: " .. lastError)
 end
+local optionsPanel, settingsCategory, refreshPanel
+local function ApplySettings()
+    for _,record in pairs(overlays) do Style(record) end
+    Update()
+    if refreshPanel then refreshPanel() end
+end
+
+local function CreateOptions()
+    if optionsPanel then return end
+    local panel=CreateFrame("Frame","RogueEnergySweepOptionsPanel")
+    optionsPanel=panel
+    local function Label(text,x,y,template)
+        local f=panel:CreateFontString(nil,"ARTWORK",template or "GameFontNormal")
+        f:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); f:SetText(text); return f
+    end
+    local function Button(text,x,y,w,click)
+        local b=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
+        b:SetSize(w,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y)
+        b:SetText(text); b:SetScript("OnClick",click); return b
+    end
+    local function Check(text,x,y,click)
+        local b=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate")
+        b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); b:SetSize(24,24)
+        Label(text,x+32,y-8,"GameFontHighlight")
+        b:SetScript("OnClick",function(self) click(self:GetChecked() and true or false); ApplySettings() end)
+        return b
+    end
+    Label("Rogue Energy Sweep",16,-16,"GameFontNormalLarge")
+    Label("Track energy readiness directly on action buttons.",16,-42,"GameFontHighlight")
+    local enabled=Check("Enable overlays",16,-65,function(v) DB.enabled=v; if v then RequestScan() end end)
+    local combat=Check("Only in combat",225,-65,function(v) DB.combatOnly=v end)
+    Label("Indicator style",16,-108)
+    local modes={}
+    for i,entry in ipairs({{"rising","Rising line"},{"bar","Bottom bar"},{"perimeter","Perimeter"},{"radial","Radial sweep"}}) do
+        local key,text=entry[1],entry[2]
+        modes[key]=Button(text,16+(i-1)*110,-130,106,function() DB.mode=key; ApplySettings() end)
+    end
+    Label("Indicator color",16,-168)
+    local colors={}
+    for i,entry in ipairs({{"amber","Gold"},{"white","White"},{"cyan","Cyan"},{"green","Green"},{"black","Black*"}}) do
+        local key,text=entry[1],entry[2]
+        colors[key]=Button(text,16+(i-1)*87,-190,82,function() DB.color=key; ApplySettings() end)
+    end
+    Label("*Black applies to radial; linear indicators use white.",16,-220,"GameFontHighlightSmall")
+    local function Slider(name,x,y,low,high,step,callback)
+        local label=Label(name,x,y)
+        local sliderName="RogueEnergySweep"..name.."Slider"
+        local slider=CreateFrame("Slider",sliderName,panel,"OptionsSliderTemplate")
+        for _,suffix in ipairs({"Text","Low","High"}) do local f=_G[sliderName..suffix]; if f then f:SetText("") end end
+        slider:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y-25); slider:SetSize(180,16)
+        slider:SetMinMaxValues(low,high); slider:SetValueStep(step)
+        if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+        slider:SetScript("OnValueChanged",function(_,v) callback(math.floor(v+0.5)) end)
+        return slider,label
+    end
+    local syncing=false
+    local opacity,opacityLabel=Slider("Opacity",16,-247,15,100,5,function(v) if not syncing then DB.opacity=v/100; ApplySettings() end end)
+    local thickness,thicknessLabel=Slider("Thickness",240,-247,2,8,1,function(v) if not syncing then DB.thickness=v; ApplySettings() end end)
+    local tint=Check("Tint the filled area (rising line)",16,-303,function(v) DB.tint=v end)
+    Label("Live preview  |  simulated energy",16,-350)
+    local previewEnergy=20
+    local previewRecords={}
+    local previewSlider,previewLabel=Slider("Energy",16,-377,0,100,1,function(v) if not syncing then previewEnergy=v; if refreshPanel then refreshPanel() end end end)
+    for i,entry in ipairs({{45,"Interface\\Icons\\Spell_Shadow_RitualOfSacrifice"},{35,"Interface\\Icons\\Ability_Rogue_Eviscerate"},{25,"Interface\\Icons\\Ability_Kick"}}) do
+        local button=CreateFrame("Frame",nil,panel)
+        button:SetSize(48,48); button:SetPoint("TOPLEFT",panel,"TOPLEFT",16+(i-1)*82,-430)
+        button.icon=button:CreateTexture(nil,"BACKGROUND"); button.icon:SetAllPoints(button); button.icon:SetTexture(entry[2])
+        local record=MakeOverlay(button,true)
+        record.previewCost=entry[1]; previewRecords[#previewRecords+1]=record
+        Label(tostring(entry[1]).." energy",16+(i-1)*82,-484,"GameFontHighlightSmall")
+    end
+    Button("Test on bars",16,-515,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
+    Button("Reset defaults",145,-515,120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
+    refreshPanel=function()
+        syncing=true
+        enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint)
+        for key,b in pairs(modes) do if key==DB.mode then b:Disable() else b:Enable() end end
+        for key,b in pairs(colors) do if key==DB.color then b:Disable() else b:Enable() end end
+        opacity:SetValue(DB.opacity*100); thickness:SetValue(DB.thickness); previewSlider:SetValue(previewEnergy)
+        opacityLabel:SetText(string.format("Opacity: %d%%",math.floor(DB.opacity*100+0.5)))
+        thicknessLabel:SetText(string.format("Thickness: %d px",DB.thickness))
+        previewLabel:SetText(string.format("Energy: %d / 100",previewEnergy))
+        for _,record in ipairs(previewRecords) do
+            Style(record)
+            local fill=math.min(1,previewEnergy/record.previewCost)
+            Paint(record,fill,1-fill,previewEnergy<record.previewCost and 1 or 0)
+        end
+        syncing=false
+    end
+    panel:SetScript("OnShow",refreshPanel)
+    if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
+        settingsCategory=Settings.RegisterCanvasLayoutCategory(panel,"Rogue Energy Sweep")
+        Settings.RegisterAddOnCategory(settingsCategory)
+    elseif InterfaceOptions_AddCategory then
+        panel.name="Rogue Energy Sweep"; InterfaceOptions_AddCategory(panel)
+    end
+    refreshPanel()
+end
+
+local function OpenOptions()
+    if not optionsPanel then local ok,err=pcall(CreateOptions); if not ok then ErrorNote(err); optionsPanel=nil; Say("Options unavailable; use /resweep help."); return end end
+    if settingsCategory and Settings.OpenToCategory then Settings.OpenToCategory(settingsCategory:GetID())
+    elseif InterfaceOptionsFrame_OpenToCategory then InterfaceOptionsFrame_OpenToCategory(optionsPanel)
+    else Say("Settings unavailable; use /resweep help.") end
+end
 local function Help()
-    Say("/resweep status | demo | on | off | rescan | combat | opacity 65 | color amber/black | mode auto/radial/bar | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | opacity 90 | color amber/white/cyan/green/black | mode rising/bar/perimeter/radial | thickness 4 | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     if not DB then return end
     local cmd, arg = (msg or ""):lower():match("^%s*(%S*)%s*(.-)%s*$")
-    if cmd == "status" then Status(); return
+    if cmd == "" or cmd == "options" then OpenOptions(); return
+    elseif cmd == "status" then Status(); return
     elseif cmd == "demo" then
         if not DB.enabled then Say("Enable the addon first with /resweep on."); return end
         if InCombatLockdown() then Say("Demo is available out of combat only."); return end
@@ -415,13 +610,13 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     elseif cmd == "off" then DB.enabled = false; demo = false
     elseif cmd == "rescan" then RequestScan(); Say(InCombatLockdown() and "Rescan deferred until combat ends." or "Rescan requested."); return
     elseif cmd == "combat" then DB.combatOnly = not DB.combatOnly; Say("Combat only: " .. tostring(DB.combatOnly))
-    elseif cmd == "opacity" and tonumber(arg) then DB.opacity = math.max(0.15, math.min(0.90, tonumber(arg)/100))
-    elseif cmd == "color" and (arg == "amber" or arg == "black") then DB.color = arg
-    elseif cmd == "mode" and (arg == "auto" or arg == "radial" or arg == "bar") then DB.mode = arg
+    elseif cmd == "opacity" and tonumber(arg) then DB.opacity = math.max(0.15, math.min(1.00, tonumber(arg)/100))
+    elseif cmd == "color" and COLORS[arg] then DB.color = arg
+    elseif cmd == "mode" and MODES[arg] then DB.mode = arg == "auto" and "radial" or arg
+    elseif cmd == "thickness" and tonumber(arg) then DB.thickness = math.floor(math.max(2,math.min(8,tonumber(arg)))+0.5)
     elseif cmd == "reset" then RogueEnergySweepDB = {}; InitDB(); lastError = "none"; RequestScan()
     else Help(); return end
-    for _, record in pairs(overlays) do Style(record) end
-    Update()
+    ApplySettings()
 end
 
 local events = CreateFrame("Frame")
@@ -437,7 +632,7 @@ end
 events:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" then
         local name = ...
-        if name == ADDON_NAME then InitDB()
+        if name == ADDON_NAME then InitDB(); local ok,err=pcall(CreateOptions); if not ok then ErrorNote(err); optionsPanel=nil; Say("Options initialization failed; use /resweep help.") end
         elseif DB and (name == "Bartender4" or name == "Dominos" or name == "ElvUI") then RequestScan() end
         return
     end
