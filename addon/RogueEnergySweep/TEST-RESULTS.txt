@@ -18,4 +18,12 @@ PASS new modes accept secrets, hide at readiness
 PASS linear fill increases with energy
 PASS default mode and options reset
 PASS options controls switch styles and persist changes
-TOTAL 20 tests passed
+PASS public countdown begins at zero, fills and disappears
+PASS secret countdown normalizes every renderer and cost independently
+PASS new cast restarts and free cast does not restart
+PASS bar rescan preserves snapshot, toggling progress resets it
+PASS options buttons and two preview sliders
+PASS native failure safely falls back to original energy display
+TOTAL 26 tests passed
+
+Simulation uses Lua 5.4 and mocked WoW APIs, including simulated secret values and native radial StatusBar normalization. It does not prove actual Forever rendering, event ordering, or secret-value taint behavior. No live game client was available.

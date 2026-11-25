@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.2.0 (WoW Forever)
+-- Rogue Energy Sweep 0.3.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -9,6 +9,7 @@ local DB
 local overlays, records, knownButtons, groups = {}, {}, {}, {}
 local lastMaxEnergy = 100
 local updatePending, rescanPending, rescanScheduled, costPending, bindingPending = false, false, false, false, false
+local progressGeneration = 0
 local demo = false
 local demoGeneration = 0
 local lastSource, lastError = "not evaluated", "none"
@@ -38,6 +39,7 @@ local function InitDB()
     if not COLORS[DB.color] then DB.color = "amber" end
     DB.thickness = math.floor(math.max(2, math.min(8, SafeNumber(DB.thickness) or 4))+0.5)
     DB.tint = DB.tint ~= false
+    if DB.progress ~= "countdown" then DB.progress = "energy" end
     DB.opacity = math.max(0.15, math.min(1.00, SafeNumber(DB.opacity) or 0.90))
 end
 
@@ -67,6 +69,14 @@ local function MakeCurve(cost, kind)
                 c:AddPoint(threshold, 0)
                 if threshold < 1 then c:AddPoint(1, 0) end
             end
+        elseif kind == "startFill" or kind == "startDeficit" then
+            -- Clamp the snapshot just below readiness to keep the native range nonzero.
+            local fill = kind == "startFill"
+            local edge = math.min(1, cost / lastMaxEnergy * 0.999)
+            local ratio = math.min(0.999, edge * lastMaxEnergy / cost)
+            c:AddPoint(0, fill and 0 or 1)
+            c:AddPoint(edge, fill and ratio or 1-ratio)
+            if edge < 1 then c:AddPoint(1, fill and ratio or 1-ratio) end
         else
             local fill = kind == "fill"
             c:AddPoint(0, fill and 0 or 1)
@@ -149,12 +159,12 @@ local function GetEnergyCost(spellID)
                 end
                 -- Unknown/restricted costs are not free abilities.
                 if cost == nil then return nil, false end
-                return cost, true
+                return cost, true, true
             end
         end
     end
 
-    return nil, false
+    return nil, false, true -- readable list with no energy cost
 end
 
 local function Clear(record)
@@ -267,14 +277,19 @@ local function MakeOverlay(button, preview)
 end
 
 local function RebuildGroups()
-    wipe(groups)
+    local previous = groups
+    groups = {}
     ClearAll()
     for _, record in ipairs(records) do
         local cost = record.cost
         if cost and cost > 0 then
             local group = groups[cost]
             if not group then
-                group = {curve=MakeCurve(cost,"fill"), deficit=MakeCurve(cost,"deficit"), visibility=MakeCurve(cost,"visibility"), records={}}
+                group = previous[cost]
+                if not group or group.maxEnergy ~= lastMaxEnergy then
+                    group = {curve=MakeCurve(cost,"fill"), deficit=MakeCurve(cost,"deficit"), visibility=MakeCurve(cost,"visibility"), maxEnergy=lastMaxEnergy}
+                end
+                group.records = {}
                 groups[cost] = group
             end
             group.records[#group.records+1] = record
@@ -411,9 +426,82 @@ local function Evaluate(curve)
     return nil,false
 end
 
+-- A native radial StatusBar normalizes a value against its range. Its texture
+-- returns a (still secret when appropriate) normalized display value. Never
+-- inspect protected values or use them to decide whether to cast anything.
+local normalizers, normalizerUnavailable
+local function NormalizeNative(fill, deficit, startFill, startDeficit)
+    if normalizerUnavailable then return nil, nil, false end
+    local ok, f, d = pcall(function()
+        if not normalizers then
+            local parent = CreateFrame("Frame", nil, UIParent)
+            parent:SetSize(8,8); parent:SetPoint("CENTER"); parent:SetAlpha(0)
+            local function NewNormalizer()
+                local bar = NewBar(parent, 0, 1)
+                bar:SetAllPoints(parent)
+                local radialMode = Enum and Enum.StatusBarRenderMode and Enum.StatusBarRenderMode.Radial or 1
+                bar:SetRenderMode(radialMode)
+                local texture = bar:GetStatusBarTexture()
+                -- Verify that the public path produces a current normalized result.
+                bar:SetMinMaxValues(0.25,0.75); bar:SetValue(0.375)
+                local check = SafeNumber(texture:GetRadialProgressBarPercent())
+                if not check or math.abs(check-0.25)>0.01 then error("native normalization self-test failed") end
+                return {bar=bar, texture=texture}
+            end
+            normalizers={NewNormalizer(), NewNormalizer()}
+        end
+        local a,b=normalizers[1],normalizers[2]
+        a.bar:SetMinMaxValues(startFill,1); a.bar:SetValue(fill)
+        b.bar:SetMinMaxValues(0,startDeficit); b.bar:SetValue(deficit)
+        return a.texture:GetRadialProgressBarPercent(), b.texture:GetRadialProgressBarPercent()
+    end)
+    if not ok then ErrorNote(f); normalizerUnavailable=true; return nil,nil,false end
+    if (not IsSecret(f) and not SafeNumber(f)) or (not IsSecret(d) and not SafeNumber(d)) then
+        lastError="native normalization did not return numbers"; normalizerUnavailable=true; return nil,nil,false
+    end
+    return f,d,true
+end
+
+local function Countdown(group, cost, fill, deficit)
+    local public = SafeNumber(fill)
+    local reset = group.public ~= (public ~= nil) or (not public and group.generation ~= progressGeneration)
+    -- When energy is public, any actual spend (including outside spell events)
+    -- can start a fresh countdown. Protected energy uses successful spell events.
+    if public and (group.start == nil or (group.lastFill and public < group.lastFill-0.00001)) then reset=true end
+    group.lastFill=public
+    if reset then
+        group.generation=progressGeneration; group.public=public ~= nil
+        if public then
+            group.start=math.min(0.999,math.max(0,public))
+        else
+            group.startFillCurve=group.startFillCurve or MakeCurve(cost,"startFill")
+            group.startDeficitCurve=group.startDeficitCurve or MakeCurve(cost,"startDeficit")
+            local sf,a=Evaluate(group.startFillCurve)
+            local sd,b=Evaluate(group.startDeficitCurve)
+            group.start=sf; group.startDeficit=sd; group.startValid=a and b
+        end
+    end
+    if public then
+        local p=math.max(0,math.min(1,(public-group.start)/(1-group.start)))
+        return p,1-p,true,"countdown (public)"
+    elseif group.startValid then
+        local f,d,ok=NormalizeNative(fill,deficit,group.start,group.startDeficit)
+        if ok then return f,d,true,"countdown (native snapshot)" end
+    end
+    return fill,deficit,false,"energy fallback (countdown unavailable)"
+end
+
+local function ResetProgress()
+    progressGeneration=progressGeneration+1
+    for _,group in pairs(groups) do group.public=nil; group.lastFill=nil; group.start=nil; group.startValid=nil end
+end
+local function SetProgress(mode)
+    if DB.progress ~= mode then DB.progress=mode; ResetProgress() end
+end
+
 local function Update()
     updatePending = false
-    if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); return end
+    if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); if DB and DB.progress=="countdown" then ResetProgress() end; return end
     local publicEnergy,triedPublic = nil,false
     lastSource = "no tracked energy abilities"
     for cost,group in pairs(groups) do
@@ -424,7 +512,7 @@ local function Update()
             local a,b,c,source
             fill,a,source = Evaluate(group.curve)
             visibility,b = Evaluate(group.visibility)
-            if DB.mode == "radial" or DB.mode == "auto" then deficit,c = Evaluate(group.deficit) else c=true end
+            if DB.mode == "radial" or DB.mode == "auto" or DB.progress == "countdown" then deficit,c = Evaluate(group.deficit) else c=true end
             valid=a and b and c
             if valid then lastSource=source end
             if not valid then
@@ -438,6 +526,10 @@ local function Update()
                     valid,lastSource=true,"public energy fallback"
                 end
             end
+        end
+        if valid and not demo and DB.progress == "countdown" then
+            local normalizedFill,normalizedDeficit,_,source=Countdown(group,cost,fill,deficit)
+            fill,deficit,lastSource=normalizedFill,normalizedDeficit,source
         end
         for _,record in ipairs(group.records) do
             if valid then Paint(record,fill,deficit,visibility) else Clear(record); lastSource="energy unavailable" end
@@ -479,9 +571,9 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.2.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.3.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
-    Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode)
+    Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("last API error: " .. lastError)
 end
 local optionsPanel, settingsCategory, refreshPanel
@@ -521,13 +613,18 @@ local function CreateOptions()
         local key,text=entry[1],entry[2]
         modes[key]=Button(text,16+(i-1)*110,-130,106,function() DB.mode=key; ApplySettings() end)
     end
-    Label("Indicator color",16,-168)
+    Label("Progress mode",16,-161)
+    local progressButtons={}
+    progressButtons.energy=Button("Energy-based",16,-181,132,function() SetProgress("energy"); ApplySettings() end)
+    progressButtons.countdown=Button("Countdown",156,-181,132,function() SetProgress("countdown"); ApplySettings() end)
+    Label("Countdown starts after spending energy (experimental).",16,-208,"GameFontHighlightSmall")
+    Label("Indicator color",16,-232)
     local colors={}
     for i,entry in ipairs({{"amber","Gold"},{"white","White"},{"cyan","Cyan"},{"green","Green"},{"black","Black*"}}) do
         local key,text=entry[1],entry[2]
-        colors[key]=Button(text,16+(i-1)*87,-190,82,function() DB.color=key; ApplySettings() end)
+        colors[key]=Button(text,16+(i-1)*87,-251,82,function() DB.color=key; ApplySettings() end)
     end
-    Label("*Black applies to radial; linear indicators use white.",16,-220,"GameFontHighlightSmall")
+    Label("*Black applies to radial; linear indicators use white.",16,-278,"GameFontHighlightSmall")
     local function Slider(name,x,y,low,high,step,callback)
         local label=Label(name,x,y)
         local sliderName="RogueEnergySweep"..name.."Slider"
@@ -540,35 +637,44 @@ local function CreateOptions()
         return slider,label
     end
     local syncing=false
-    local opacity,opacityLabel=Slider("Opacity",16,-247,15,100,5,function(v) if not syncing then DB.opacity=v/100; ApplySettings() end end)
-    local thickness,thicknessLabel=Slider("Thickness",240,-247,2,8,1,function(v) if not syncing then DB.thickness=v; ApplySettings() end end)
-    local tint=Check("Tint the filled area (rising line)",16,-303,function(v) DB.tint=v end)
-    Label("Live preview  |  simulated energy",16,-350)
-    local previewEnergy=20
+    local opacity,opacityLabel=Slider("Opacity",16,-303,15,100,5,function(v) if not syncing then DB.opacity=v/100; ApplySettings() end end)
+    local thickness,thicknessLabel=Slider("Thickness",240,-303,2,8,1,function(v) if not syncing then DB.thickness=v; ApplySettings() end end)
+    local tint=Check("Tint the filled area (rising line)",16,-351,function(v) DB.tint=v end)
+    Label("Live preview  |  simulated energy",16,-386)
+    local previewEnergy=15
     local previewRecords={}
-    local previewSlider,previewLabel=Slider("Energy",16,-377,0,100,1,function(v) if not syncing then previewEnergy=v; if refreshPanel then refreshPanel() end end end)
+    local previewStart=15
+    local previewSlider,previewLabel=Slider("Energy",16,-410,0,100,1,function(v) if not syncing then previewEnergy=v; if refreshPanel then refreshPanel() end end end)
+    local previewStartSlider,previewStartLabel=Slider("StartEnergy",240,-410,0,100,1,function(v) if not syncing then previewStart=v; if refreshPanel then refreshPanel() end end end)
     for i,entry in ipairs({{45,"Interface\\Icons\\Spell_Shadow_RitualOfSacrifice"},{35,"Interface\\Icons\\Ability_Rogue_Eviscerate"},{25,"Interface\\Icons\\Ability_Kick"}}) do
         local button=CreateFrame("Frame",nil,panel)
-        button:SetSize(48,48); button:SetPoint("TOPLEFT",panel,"TOPLEFT",16+(i-1)*82,-430)
+        button:SetSize(48,48); button:SetPoint("TOPLEFT",panel,"TOPLEFT",16+(i-1)*82,-455)
         button.icon=button:CreateTexture(nil,"BACKGROUND"); button.icon:SetAllPoints(button); button.icon:SetTexture(entry[2])
         local record=MakeOverlay(button,true)
         record.previewCost=entry[1]; previewRecords[#previewRecords+1]=record
-        Label(tostring(entry[1]).." energy",16+(i-1)*82,-484,"GameFontHighlightSmall")
+        Label(tostring(entry[1]).." energy",16+(i-1)*82,-508,"GameFontHighlightSmall")
     end
-    Button("Test on bars",16,-515,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
-    Button("Reset defaults",145,-515,120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
+    Button("Test on bars",16,-535,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
+    Button("Reset defaults",145,-535,120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
     refreshPanel=function()
         syncing=true
         enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint)
         for key,b in pairs(modes) do if key==DB.mode then b:Disable() else b:Enable() end end
+        for key,b in pairs(progressButtons) do if key==DB.progress then b:Disable() else b:Enable() end end
         for key,b in pairs(colors) do if key==DB.color then b:Disable() else b:Enable() end end
-        opacity:SetValue(DB.opacity*100); thickness:SetValue(DB.thickness); previewSlider:SetValue(previewEnergy)
+        opacity:SetValue(DB.opacity*100); thickness:SetValue(DB.thickness); previewSlider:SetValue(previewEnergy); previewStartSlider:SetValue(previewStart)
         opacityLabel:SetText(string.format("Opacity: %d%%",math.floor(DB.opacity*100+0.5)))
         thicknessLabel:SetText(string.format("Thickness: %d px",DB.thickness))
         previewLabel:SetText(string.format("Energy: %d / 100",previewEnergy))
+        previewStartLabel:SetText(string.format("Post-spend start: %d",previewStart))
+        if DB.progress=="countdown" then previewStartSlider:Show(); previewStartLabel:Show() else previewStartSlider:Hide(); previewStartLabel:Hide() end
         for _,record in ipairs(previewRecords) do
             Style(record)
             local fill=math.min(1,previewEnergy/record.previewCost)
+            if DB.progress=="countdown" then
+                local start=math.min(previewStart,record.previewCost-0.001)
+                fill=math.max(0,math.min(1,(previewEnergy-start)/(record.previewCost-start)))
+            end
             Paint(record,fill,1-fill,previewEnergy<record.previewCost and 1 or 0)
         end
         syncing=false
@@ -590,7 +696,7 @@ local function OpenOptions()
     else Say("Settings unavailable; use /resweep help.") end
 end
 local function Help()
-    Say("/resweep options | status | demo | on | off | rescan | combat | opacity 90 | color amber/white/cyan/green/black | mode rising/bar/perimeter/radial | thickness 4 | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | opacity 90 | color amber/white/cyan/green/black | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
@@ -607,14 +713,15 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
         C_Timer.After(5, function() if generation == demoGeneration then demo = false; Update() end end)
         return
     elseif cmd == "on" then DB.enabled = true; RequestScan()
-    elseif cmd == "off" then DB.enabled = false; demo = false
+    elseif cmd == "off" then DB.enabled = false; demo = false; ResetProgress()
     elseif cmd == "rescan" then RequestScan(); Say(InCombatLockdown() and "Rescan deferred until combat ends." or "Rescan requested."); return
     elseif cmd == "combat" then DB.combatOnly = not DB.combatOnly; Say("Combat only: " .. tostring(DB.combatOnly))
     elseif cmd == "opacity" and tonumber(arg) then DB.opacity = math.max(0.15, math.min(1.00, tonumber(arg)/100))
     elseif cmd == "color" and COLORS[arg] then DB.color = arg
     elseif cmd == "mode" and MODES[arg] then DB.mode = arg == "auto" and "radial" or arg
+    elseif cmd == "progress" and (arg == "energy" or arg == "countdown") then SetProgress(arg)
     elseif cmd == "thickness" and tonumber(arg) then DB.thickness = math.floor(math.max(2,math.min(8,tonumber(arg)))+0.5)
-    elseif cmd == "reset" then RogueEnergySweepDB = {}; InitDB(); lastError = "none"; RequestScan()
+    elseif cmd == "reset" then RogueEnergySweepDB = {}; InitDB(); ResetProgress(); lastError = "none"; RequestScan()
     else Help(); return end
     ApplySettings()
 end
@@ -625,7 +732,7 @@ for _, event in ipairs({"ADDON_LOADED","PLAYER_ENTERING_WORLD","PLAYER_REGEN_DIS
     "PLAYER_TALENT_UPDATE","ACTIVE_TALENT_GROUP_CHANGED","UPDATE_SHAPESHIFT_FORM","UPDATE_STEALTH"}) do
     pcall(events.RegisterEvent, events, event)
 end
-for _, event in ipairs({"UNIT_POWER_FREQUENT","UNIT_POWER_UPDATE","UNIT_MAXPOWER","UNIT_AURA"}) do
+for _, event in ipairs({"UNIT_POWER_FREQUENT","UNIT_POWER_UPDATE","UNIT_MAXPOWER","UNIT_AURA","UNIT_SPELLCAST_SUCCEEDED"}) do
     pcall(events.RegisterUnitEvent, events, event, "player")
 end
 
@@ -641,6 +748,17 @@ events:SetScript("OnEvent", function(_, event, ...)
     elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_POWER_UPDATE" then
         local unit, power = ...
         if DB.enabled and unit == "player" and not IsSecret(power) and power == "ENERGY" then RequestUpdate() end
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        local unit, _, spellID = ...
+        if DB.enabled and DB.progress=="countdown" and not IsSecret(unit) and unit=="player" then
+            local id=SafeNumber(spellID)
+            local cost, hasEnergy, readable=GetEnergyCost(id)
+            -- If spell identity/cost is restricted, reset on successful player
+            -- casts rather than guessing which spell was used. Known free casts do not reset.
+            if not id or not readable or (hasEnergy and cost>0) then
+                progressGeneration=progressGeneration+1; RequestUpdate()
+            end
+        end
     elseif event == "UNIT_MAXPOWER" or event == "UNIT_AURA" or event == "PLAYER_EQUIPMENT_CHANGED"
         or event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then RequestCosts()
     elseif event == "PLAYER_REGEN_DISABLED" then demo = false; RefreshCosts(); Update()
