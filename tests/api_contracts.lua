@@ -553,3 +553,45 @@ gf,gd,gv,gr,projected=gcd.Project(1,60,secret,secret,1,0,true); assert(rawequal(
 gcdEnv.C_Spell.GetSpellCooldownDuration=function() return {GetRemainingDuration=function() return secret end} end
 gcd.Begin(100,false); gf,gd,gv,gr,projected=gcd.Project(1,60,.5,.5,1,0,false); near(gf,.5); assert(not projected)
 print("PASS: GCD projection, off-GCD exclusion, native countdown preservation and protected fallback")
+
+-- Run the real new breakpoint layouts with the previous native frame mock.
+trackerDB.tracker.auto=true
+for _,name in ipairs({"segments","staircase","lights","arc"}) do
+    tracker.Command(name); assert(tracker.Sync(tracked,100)); assert(tracker.Begin(false))
+    tracker.Finish(false)
+    assert(tracker.Status():find("last error none",1,true),tracker.Status())
+    assert(tracker.Status():find("4 breakpoints",1,true),tracker.Status())
+end
+tracker.Command("off"); tracker.Sync(tracked,100)
+print("PASS: actual breakpoint widget layouts with opaque native energy")
+-- Ability Chains uses native bar inputs and never inspects the curve result.
+local chainsNS={}
+local chainWidgets={}
+local chainEnv=setmetatable({C_CurveUtil=env.C_CurveUtil,
+    C_Spell={GetSpellInfo=function(id) return {name=id==1 and "Sinister Strike" or "Backstab"} end},
+    CreateFrame=function(kind,name,parent)
+        local w=trackerWidget(parent,kind,name)
+        function w:SetOrientation(v) self.orientation=v end
+        chainWidgets[#chainWidgets+1]=w
+        return w
+    end},{__index=_G})
+assert(loadfile("addon/RogueEnergySweep/Chains.lua","t",chainEnv))("RogueEnergySweep",chainsNS)
+local chains=chainsNS.Chains
+local reads=0
+chains.Configure({safe=function(v) if type(v)=="number" then return v end end,secret=env.issecretvalue,
+    excluded=function() return false end,evaluate=function(c) reads=reads+1; return secret,true end})
+local chainDB={chains={enabled=true,template="custom",rules={[1]={repeatPips=true,follow={2}}}}}
+chains.Init(chainDB)
+local cb1={spellID=1,cost=45,category="builder",comboGate=trackerWidget(nil,"Frame"),frame=trackerWidget(nil,"Frame")}
+local cb2={spellID=2,cost=60,category="builder",comboGate=trackerWidget(nil,"Frame"),frame=trackerWidget(nil,"Frame")}
+chains.Sync({cb1,cb2},100); chains.Begin(); chains.Update(cb1,true)
+local bars=0
+for _,w in ipairs(chainWidgets) do if w.kind=="StatusBar" then bars=bars+1; assert(rawequal(w.SetValueArgs[1],secret)) end end
+assert(bars==4 and reads==4, "expected three repeat pips including partial third, one follow-up")
+chains.Begin(); chains.Update(cb1,false)
+assert(not chainWidgets[1].shown)
+chainDB.chains.rules[1]={repeatPips=false,follow={}}
+chains.Sync({cb1,cb2},100); chains.Begin(); chains.Update(cb1,true)
+assert(not chainWidgets[1].shown)
+assert(chains.Status():find("last error none",1,true),chains.Status())
+print("PASS: native Ability Chains widgets, protected samples, three repeat slots, follow-up, and stale rule cleanup")

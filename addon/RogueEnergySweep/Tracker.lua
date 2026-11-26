@@ -228,6 +228,7 @@ local function SetupDial()
         dial={frame=frame,track=track,fill=fill,native=native,label=label,caption=caption,backup=backup}
     end
     dial.frame:SetSize(156,156); dial.frame:SetPoint("CENTER",root,"CENTER")
+    dial.backup:ClearAllPoints(); dial.backup:SetPoint("CENTER",dial.frame,"CENTER",0,-22)
     local r,g,b=Color(); dial.fill:SetVertexColor(r,g,b,cfg.opacity); dial.backup:SetStatusBarColor(r,g,b,cfg.opacity)
     dial.curve=api.curve(maximum,"dial"); dial.fullCurve=api.curve(maximum,"fill")
     dial.frame:Show()
@@ -260,6 +261,7 @@ local function BreakpointItem(index)
 end
 local function SetupBreakpoints(entries)
     if not breakpointFrame then breakpointFrame=Frame(root) end
+    breakpointFrame:SetFrameLevel(root:GetFrameLevel()+6)
     breakpointFrame:ClearAllPoints(); breakpointFrame:SetAllPoints(root)
     for _,item in ipairs(breakpointPool) do item.frame:Hide() end
     breakpointRows={}
@@ -297,7 +299,7 @@ local function SetupBreakpoints(entries)
                 if item.marker.SetRotation then pcall(item.marker.SetRotation,item.marker,-angle) end
                 item.marker:SetVertexColor(.08,.07,.05,1); item.marker:Show()
             end
-            if cfg.showCosts then
+            if cfg.showCosts and (i==1 or i==#points or (low-points[i-1])/maximum*270>=12) then
                 local px,py=DialPoint(low,maximum,101)
                 item.label:SetPoint("CENTER",item.frame,"CENTER",px,py)
                 item.label:SetText(tostring(low)); item.label:Show()

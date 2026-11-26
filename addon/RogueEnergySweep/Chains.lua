@@ -17,7 +17,8 @@ local function Normalize(c)
     c.offset=number(c.offset,0,-12,12); c.regen=number(c.regen,10,0,30)
     c.maxPips=math.floor(number(c.maxPips,4,1,6))
     c.rules=type(c.rules)=="table" and c.rules or {}; c.colors=type(c.colors)=="table" and c.colors or {}
-    c.template=c.template or "minimal"
+    local templates={minimal=true,builders=true,pvp=true,finishers=true,custom=true}
+    c.template=templates[c.template] and c.template or "minimal"
     return c
 end
 function C.Configure(a) api=a end
@@ -147,6 +148,16 @@ local function Setup(record,entry)
         r={frame=frame,pips={}}; tracked[record]=r
     end
     r.count=#defs; r.frame:SetAlpha(cfg.opacity)
+    local width=36
+    if record.frame.GetWidth then local ok,v=pcall(record.frame.GetWidth,record.frame); if ok then width=api.safe(v) or width end end
+    local repeatCount,followCount=0,0
+    for _,d in ipairs(defs) do if d.kind=="repeat" then repeatCount=repeatCount+1 else followCount=followCount+1 end end
+    local function Fit(count)
+        local gap=math.min(cfg.spacing,math.max(1,(width-2)/math.max(1,count)*.25))
+        local size=math.max(2,math.min(cfg.size,(width-2-(count-1)*gap)/math.max(1,count)))
+        return size,gap
+    end
+    local repeatSize,repeatGap=Fit(repeatCount); local followSize,followGap=Fit(followCount)
     for i,d in ipairs(defs) do
         local p=r.pips[i]
         if not p then
@@ -154,11 +165,13 @@ local function Setup(record,entry)
             p=NewPip(r.frame); r.pips[i]=p
         end
         local texture=d.kind=="repeat" and CIRCLE or DIAMOND
-        p.frame:SetSize(cfg.size,cfg.size); p.frame:ClearAllPoints()
+        local size,gap=repeatSize,repeatGap
+        if d.kind=="follow" then size,gap=followSize,followGap end
+        p.frame:SetSize(size,size); p.frame:ClearAllPoints()
         if d.kind=="repeat" then
-            p.frame:SetPoint("TOPLEFT",r.frame,"TOPLEFT",1+(d.n-1)*(cfg.size+cfg.spacing),cfg.offset-1)
+            p.frame:SetPoint("TOPLEFT",r.frame,"TOPLEFT",1+(d.n-1)*(size+gap),cfg.offset-1)
         else
-            p.frame:SetPoint("BOTTOMLEFT",r.frame,"BOTTOMLEFT",1+(d.n-1)*(cfg.size+cfg.spacing),-cfg.offset+1)
+            p.frame:SetPoint("BOTTOMLEFT",r.frame,"BOTTOMLEFT",1+(d.n-1)*(size+gap),-cfg.offset+1)
         end
         p.bg:SetTexture(texture); p.bg:SetVertexColor(.15,.13,.11,.85)
         p.bar:SetStatusBarTexture(texture)

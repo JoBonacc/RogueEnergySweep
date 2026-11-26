@@ -54,10 +54,24 @@ function G.Begin(max,demo)
     status="actual energy (GCD or regen unavailable)"
     if not C_Spell or not C_Spell.GetSpellCooldownDuration then return end
     local ok,d=pcall(C_Spell.GetSpellCooldownDuration,61304,false)
-    if not ok or api.secret(d) then return end
-    if d==nil then status="actual energy (no GCD)"; return end
-    local good,v=pcall(function() return d:GetRemainingDuration() end)
-    local remaining=good and api.safe(v) or nil
+    local remaining
+    if ok and not api.secret(d) and d~=nil then
+        local good,v=pcall(function() return d:GetRemainingDuration() end)
+        remaining=good and api.safe(v) or nil
+    end
+    -- A duration object can be restricted while its public recovery field is
+    -- still accessible. Only use documented, independently public timing.
+    if remaining==nil and C_Spell.GetSpellCooldown then
+        local good,info=pcall(C_Spell.GetSpellCooldown,61304)
+        if good and not api.secret(info) and type(info)=="table" then
+            remaining=api.safe(info.timeUntilEndOfStartRecovery)
+            if remaining==nil and type(GetTime)=="function" then
+                local start,duration,modRate=api.safe(info.startTime),api.safe(info.duration),api.safe(info.modRate)
+                local now=api.safe(GetTime())
+                if start and duration and now and (modRate==1 or (modRate==nil and not api.secret(info.modRate))) then remaining=math.max(0,start+duration-now) end
+            end
+        end
+    end
     if remaining==nil then return end
     if remaining<=0 then status="actual energy (no GCD)"; return end
     local rate=Regen()
