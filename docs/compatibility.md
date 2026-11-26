@@ -17,7 +17,9 @@ v0.6.1: user confirmed restored radial rendering works. All four energy-based st
 
 Build 71139, interface 16001: user reported all four countdown styles working in v0.7.0. Together with the earlier v0.6.0/v0.6.1 energy-style checks, all eight animation combinations are reported working. The v0.7.0 bottom-bar status showed five tracked buttons, five bars active, a protected snapshot requesting direct ranges, and no historical API error. The progress summary incorrectly displayed `5: 5`; v0.7.1 fixes the label without changing rendering. The full edge-case checklist below has not been completed, and action-bar configuration was not recorded. No fully live-tested build is claimed. The reviewed baseline remains 71091.
 
-## v0.14.0 combined release-candidate checklist
+## v0.15.0 combined release-candidate checklist
+
+- [ ] Test all energy-ready effects in the ready dialog and animated main preview. Test real energy thresholds in and out of combat, public vs protected signal paths, fallback enabled/disabled, ability/cooldown/finisher filtering, stealth swaps, no repeated one-shot while ready, and no conflict with native cast/proc/cooldown animations. Verify no taint or errors; capture diagnostic report.
 
 - [ ] Test Solid, Gradient and Luminous in both Rising Line directions and both progress modes. Verify tint off, zero tint opacity, partial fill, zero progress and affordability, color changes, reload persistence and no visual spill beyond the icon. Review diagnostic fallback count.
 

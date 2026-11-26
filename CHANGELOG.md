@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.15.0
+- Add global energy-ready effects: native cast burst, cooldown flash, proc glow, halo, custom border, pulse and soft flash. None remains the default.
+- Use a separate native readiness alpha curve and existing ability, combo and cooldown gates. One-shots trigger only from explicitly public transitions (energy or conservative non-finisher power usability); optional pulse fallback for protected transitions.
+- Add a compact ready effects dialog, native artwork preview, intensity, match color, diagnostics, and mocked readiness/transition tests. No existing Blizzard action button effect frames are modified. Live verification pending.
+
 ## v0.14.0
 - Add Solid, Gradient and Luminous Rising Line fill effects, with a gradient following the native fill region and additive blending for Luminous. Reverse direction flips the fade; both progress modes share the same appearance path.
 - Preserve Solid as the default and persist the selected fill effect per style. Contextual settings appear only when Rising Line tint is enabled.

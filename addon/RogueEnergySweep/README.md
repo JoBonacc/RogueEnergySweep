@@ -1,4 +1,4 @@
-# Rogue Energy Sweep v0.14.0 — release candidate
+# Rogue Energy Sweep v0.15.0 — release candidate
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
@@ -24,6 +24,9 @@ Each style remembers its own color, opacity, thickness, direction, tint and tint
 ## Diagnostics
 Use **Diagnostics** or `/resweep diagnostics` to open a selectable report. Click Select report and press Ctrl+C; WoW does not permit addons to write directly to the system clipboard. Review before sharing. Start sampling enables session-local timing of addon update callbacks; stop retains the sample. Reported memory is a client estimate and timing is not a full frame-rate/CPU profiler. No profiling is enabled by default. Actual performance and live compatibility still require in-game validation.
 
+## Energy ready effects
+Open **Ready effects...** in the Progress mode row. None (default), Cast burst, Cooldown flash, Proc glow, Halo, Border, Pulse, and Soft flash are global choices independent of the active regeneration style. Match indicator color and effect intensity are optional. Persistent effects use a native readiness curve, separate from regeneration alpha. One-shot effects use an explicitly public energy transition or, for non-finishers, a conservative public spell-power usability transition when available. If neither is readable, the optional (default enabled) pulse fallback appears while affordable; disabling it suppresses the one-shot effect in those cases. No protected values are compared, guessed, or read back. The preview always uses public simulated energy and can demonstrate the one-shot artwork. Filters apply to the live ready gate. Missing artwork or animation API support can fall back to a simple effect. The diagnostic report identifies the actual path and errors. Native artwork and animation calls still need live verification. Energy-ready does not imply range, target, or other cast requirements are met.
+
 ## Commands
 - `/resweep` or `/resweep options`: open options.
 - `/resweep demo`: display 50% progress for five seconds on tracked buttons (out of combat only).
@@ -37,6 +40,8 @@ Use **Diagnostics** or `/resweep diagnostics` to open a selectable report. Click
 - `/resweep reverse`: reverse the active style.
 - `/resweep tintopacity 15`: set rising tint opacity (0–100).
 - `/resweep fill solid|gradient|luminous`: change the active Rising Line fill effect.
+- `/resweep ready`: open energy ready settings.
+- `/resweep ready none|burst|flash|proc|halo|border|pulse|softflash`: choose ready effect.
 - `/resweep resetstyle`: reset only active appearance.
 - `/resweep thickness 4`: change line/bar thickness.
 - `/resweep finishers on|off`: enable or disable target combo-point filtering (omit argument to toggle).

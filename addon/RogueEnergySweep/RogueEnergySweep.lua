@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.14.0 (WoW Forever)
+-- Rogue Energy Sweep 0.15.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -14,6 +14,7 @@ local demo = false
 local demoGeneration = 0
 local lastSource, lastError = "not evaluated", "none"
 local refreshLiveStatus
+local ClearReady
 local function Say(message) print("|cffffcc66Energy Sweep:|r " .. message) end
 local function IsSecret(value)
     return type(issecretvalue) == "function" and issecretvalue(value)
@@ -87,6 +88,8 @@ local function OpenCustomColorPicker(apply)
     return true
 end
 local FILL_EFFECTS={solid=true,gradient=true,luminous=true}
+local READY_EFFECTS={none=true,burst=true,flash=true,proc=true,halo=true,border=true,pulse=true,softflash=true}
+local READY_ONESHOT={burst=true,flash=true,softflash=true}
 local function AppearanceSnapshot(source)
     local c=source.customColor
     c=type(c)=="table" and ValidRGB(c[1],c[2],c[3]) or nil
@@ -128,6 +131,10 @@ local function InitDB()
     DB.combatOnly = DB.combatOnly == true
     DB.finisherComboOnly = DB.finisherComboOnly == true
     DB.hideCooldowns = DB.hideCooldowns == true
+    if not READY_EFFECTS[DB.readyEffect] then DB.readyEffect="none" end
+    DB.readyMatchColor=DB.readyMatchColor==true
+    DB.readyFallback=DB.readyFallback~=false
+    DB.readyOpacity=math.max(.15,math.min(1,SafeNumber(DB.readyOpacity) or .7))
     if type(DB.showCategories)~="table" then DB.showCategories={} end
     for _,key in ipairs({"builder","finisher","other"}) do DB.showCategories[key]=DB.showCategories[key]~=false end
     if type(DB.excludedSpells)~="table" then DB.excludedSpells={} end
@@ -164,14 +171,16 @@ local function MakeCurve(cost, kind)
             c:SetType(Enum.LuaCurveType.Linear)
         end
         local threshold = math.min(1, cost / lastMaxEnergy)
-        if kind == "visibility" then
-            if cost > lastMaxEnergy then c:AddPoint(0, 1); c:AddPoint(1, 1)
+        if kind == "visibility" or kind == "ready" then
+            local below,above=1,0
+            if kind=="ready" then below,above=0,1 end
+            if cost > lastMaxEnergy then c:AddPoint(0, below); c:AddPoint(1, below)
             else
-                c:AddPoint(0, 1)
+                c:AddPoint(0, below)
                 local edge = math.max(0, threshold - 0.5 / lastMaxEnergy)
-                if edge > 0 then c:AddPoint(edge, 1) end
-                c:AddPoint(threshold, 0)
-                if threshold < 1 then c:AddPoint(1, 0) end
+                if edge > 0 then c:AddPoint(edge, below) end
+                c:AddPoint(threshold, above)
+                if threshold < 1 then c:AddPoint(1, above) end
             end
         elseif kind == "startFill" or kind == "startDeficit" then
             -- Clamp the snapshot just below readiness to keep the native range nonzero.
@@ -393,7 +402,7 @@ local function Clear(record)
 end
 
 local function ClearAll()
-    for _, record in pairs(overlays) do Clear(record) end
+    for _, record in pairs(overlays) do Clear(record); if ClearReady then ClearReady(record) end end
 end
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
@@ -579,6 +588,215 @@ local function MakeOverlay(button, preview)
     if not preview then overlays[button]=record end
     Style(record); Clear(record)
     return record
+end
+
+-- Ready effects are independent siblings of the insufficient-energy frame.
+-- Never read a secret alpha back or use a secret as an animation trigger.
+local function ReadySignal(record,alpha)
+    local public=SafeNumber(alpha)
+    if public~=nil then return public>=1,"public energy" end
+    -- Public spell usability is a conservative secondary signal only for
+    -- non-finishers. A missing combo point is not an energy transition.
+    if IsSecret(alpha) and not record.finisher and C_Spell and type(C_Spell.IsSpellUsable)=="function" then
+        local ok,usable,insufficient=pcall(C_Spell.IsSpellUsable,record.spellID)
+        if ok and not IsSecret(usable) and not IsSecret(insufficient) and type(usable)=="boolean" and type(insufficient)=="boolean" then
+            if insufficient then return false,"public power usability" end
+            if usable then return true,"public power usability" end
+        end
+    end
+    return nil,"protected threshold"
+end
+local function ReadyTransition(record,ready,source)
+    local fire=ready==true and record.readyPrevious==false and record.readySignalSource==source
+    record.readyPrevious=ready
+    record.readySignalSource=source
+    return fire
+end
+local function ReadyChoice(effect,signal,fallback)
+    if READY_ONESHOT[effect] and signal==nil then
+        return fallback and "pulse" or "none"
+    end
+    return effect
+end
+local function StopReadyVisual(record)
+    local visual=record.readyVisual
+    record.readyVisual=nil
+    if not visual then return end
+    if visual.anim then pcall(visual.anim.Stop,visual.anim) end
+    pcall(visual.frame.Hide,visual.frame)
+end
+ClearReady=function(record)
+    StopReadyVisual(record)
+    record.readyPrevious=nil; record.readySignalSource=nil; record.readyRequested=nil
+    record.readyActual=nil; record.readyReason=nil
+    if record.readyGate then pcall(record.readyGate.SetAlpha,record.readyGate,0) end
+end
+local function ReadyAtlas(texture,atlas)
+    if C_Texture and C_Texture.GetAtlasInfo and not C_Texture.GetAtlasInfo(atlas) then error("Missing atlas "..atlas) end
+    texture:SetAtlas(atlas,false)
+end
+local function ReadyTexture(parent,atlas,inset)
+    local t=parent:CreateTexture(nil,"ARTWORK")
+    t:SetPoint("TOPLEFT",parent,"TOPLEFT",inset,-inset)
+    t:SetPoint("BOTTOMRIGHT",parent,"BOTTOMRIGHT",-inset,inset)
+    if atlas then ReadyAtlas(t,atlas) else t:SetTexture(WHITE) end
+    return t
+end
+local function ReadyAnim(group,kind,target,duration,order)
+    local a=group:CreateAnimation(kind)
+    a:SetTarget(target); a:SetDuration(duration); a:SetOrder(order or 1)
+    return a
+end
+local function ReadyFlipbook(group,target,duration,rows,columns,frames)
+    local a=ReadyAnim(group,"FlipBook",target,duration)
+    a:SetFlipBookRows(rows); a:SetFlipBookColumns(columns); a:SetFlipBookFrames(frames)
+    return a
+end
+local function ReadyBorder(parent,textures)
+    for i=1,4 do
+        local t=parent:CreateTexture(nil,"OVERLAY")
+        t:SetTexture(WHITE)
+        if i==1 then t:SetPoint("TOPLEFT"); t:SetPoint("TOPRIGHT"); t:SetHeight(2)
+        elseif i==2 then t:SetPoint("TOPRIGHT"); t:SetPoint("BOTTOMRIGHT"); t:SetWidth(2)
+        elseif i==3 then t:SetPoint("BOTTOMLEFT"); t:SetPoint("BOTTOMRIGHT"); t:SetHeight(2)
+        else t:SetPoint("TOPLEFT"); t:SetPoint("BOTTOMLEFT"); t:SetWidth(2) end
+        t:SetBlendMode("ADD"); textures[#textures+1]=t
+    end
+end
+local function BuildReadyVisual(record,effect)
+    if not record.readyGate then
+        local gate=CreateFrame("Frame",nil,record.comboGate)
+        gate:EnableMouse(false); gate:SetAllPoints(record.frame)
+        gate:SetFrameLevel(record.frame:GetFrameLevel()+4); gate:SetAlpha(0)
+        record.readyGate=gate
+    end
+    record.readyVisuals=record.readyVisuals or {}
+    if record.readyVisuals[effect]~=nil then return record.readyVisuals[effect] or nil end
+    local frame
+    local ok,visual=pcall(function()
+        frame=CreateFrame("Frame",nil,record.readyGate)
+        frame:Hide(); frame:EnableMouse(false); frame:SetAllPoints(record.readyGate)
+        local content=CreateFrame("Frame",nil,frame)
+        content:EnableMouse(false); content:SetAllPoints(frame)
+        local v={frame=frame,content=content,textures={},effect=effect}
+        local function Texture(atlas,inset)
+            local t=ReadyTexture(content,atlas,inset)
+            v.textures[#v.textures+1]=t; return t
+        end
+        local function Anim()
+            if not v.anim then v.anim=content:CreateAnimationGroup() end
+            return v.anim
+        end
+        if effect=="burst" then
+            local t=Texture("UI-HUD-ActionBar-Casting-Complete-Glow",-3)
+            t:SetBlendMode("ADD")
+            local mask=content:CreateMaskTexture(nil,"ARTWORK")
+            mask:SetPoint("TOPLEFT",content,"TOPLEFT",-12,12)
+            mask:SetPoint("BOTTOMRIGHT",content,"BOTTOMRIGHT",12,-12)
+            mask:SetAtlas("UI-HUD-ActionBar-CastingChannel-Complete-Mask",false)
+            t:AddMaskTexture(mask)
+            local a=ReadyAnim(Anim(),"Scale",t,.5)
+            a:SetScaleFrom(.15,.15); a:SetScaleTo(1.7,1.7); a:SetSmoothing("OUT")
+            local fade=ReadyAnim(Anim(),"Alpha",t,.5); fade:SetFromAlpha(1); fade:SetToAlpha(0)
+        elseif effect=="flash" then
+            local t=Texture("UI-HUD-ActionBar-GCD-Flipbook",0)
+            ReadyFlipbook(Anim(),t,.75,11,2,22)
+        elseif effect=="proc" then
+            local t=Texture("UI-HUD-ActionBar-Proc-Loop-Flipbook",-6)
+            ReadyFlipbook(Anim(),t,1,6,5,30)
+            v.anim:SetLooping("REPEAT")
+        elseif effect=="halo" then
+            local t=Texture("UI-HUD-RotationHelper-ProcAltGlow",-5)
+            t:SetBlendMode("ADD")
+        elseif effect=="border" or effect=="pulse" then
+            ReadyBorder(content,v.textures)
+            if effect=="pulse" then
+                local a=ReadyAnim(Anim(),"Alpha",content,.6); a:SetFromAlpha(.15); a:SetToAlpha(1); a:SetSmoothing("IN_OUT")
+                v.anim:SetLooping("BOUNCE")
+            end
+        elseif effect=="softflash" then
+            local t=Texture(nil,0); t:SetBlendMode("ADD")
+            local a=ReadyAnim(Anim(),"Alpha",t,.28); a:SetFromAlpha(.65); a:SetToAlpha(0); a:SetSmoothing("OUT")
+        else error("Unknown ready effect") end
+        if v.anim and READY_ONESHOT[effect] then
+            v.anim:SetScript("OnFinished",function()
+                if record.readyVisual==v then
+                    record.readyVisual=nil; v.frame:Hide()
+                end
+            end)
+        end
+        return v
+    end)
+    if not ok then
+        if frame then pcall(frame.Hide,frame) end
+        record.readyVisuals[effect]=false
+        record.readyError=tostring(visual)
+        return nil
+    end
+    record.readyVisuals[effect]=visual
+    return visual
+end
+local function StyleReadyVisual(visual)
+    local c=ResolveColor()
+    local r,g,b=1,1,1
+    if DB.readyMatchColor then
+        r,g,b=c[1],c[2],c[3]
+        if r==0 and g==0 and b==0 then r,g,b=1,1,1 end
+    elseif visual.effect=="border" or visual.effect=="pulse" or visual.effect=="softflash" then r,g,b=1,.78,.16 end
+    local key=string.format("%.3f:%.3f:%.3f:%.3f",r,g,b,DB.readyOpacity)
+    if visual.styleKey==key then return end
+    visual.frame:SetAlpha(DB.readyOpacity)
+    for _,t in ipairs(visual.textures) do t:SetVertexColor(r,g,b,1) end
+    visual.styleKey=key
+end
+local function UpdateReady(record,alpha,eligible,preview)
+    local effect=DB.readyEffect
+    if not eligible or effect=="none" or (not IsSecret(alpha) and SafeNumber(alpha)==nil) then ClearReady(record); return end
+    if record.readyRequested~=effect then
+        ClearReady(record); record.readyRequested=effect
+    end
+    local signal,source=ReadySignal(record,alpha)
+    local fire=ReadyTransition(record,signal,source)
+    local desired=ReadyChoice(effect,signal,DB.readyFallback)
+    record.readyReason=source
+    if desired=="none" then StopReadyVisual(record); record.readyActual="none"; return end
+    local oneshot=READY_ONESHOT[desired]==true
+    local public=SafeNumber(alpha)
+    if public~=nil and public<1 then StopReadyVisual(record); record.readyActual=desired; return end
+    if oneshot and signal==false then StopReadyVisual(record); record.readyActual=desired; return end
+    if oneshot and not fire and not (record.readyVisual and READY_ONESHOT[record.readyVisual.effect]) then
+        if record.readyVisual then StopReadyVisual(record) end
+        record.readyActual=desired; return
+    end
+    local visual=BuildReadyVisual(record,desired)
+    local actual=desired
+    if not visual then
+        actual=oneshot and "softflash" or "border"
+        visual=BuildReadyVisual(record,actual)
+        record.readyReason=source.." / artwork fallback"
+    end
+    if not visual then StopReadyVisual(record); record.readyActual="none"; return end
+    record.readyActual=actual
+    -- Native alpha is the only protected input; the animation itself is
+    -- public and never reads the visibility or alpha back from a widget.
+    local ok=pcall(record.readyGate.SetAlpha,record.readyGate,alpha)
+    if not ok then
+        StopReadyVisual(record); record.readyReason="native ready alpha rejected"; record.readyActual="none"; return
+    end
+    StyleReadyVisual(visual)
+    if record.readyVisual~=visual or (oneshot and fire) then
+        StopReadyVisual(record)
+        record.readyVisual=visual
+        visual.frame:Show()
+        if visual.anim then visual.anim:Play() end
+    end
+end
+local function SafeUpdateReady(record,alpha,eligible,preview)
+    if DB.readyEffect=="none" and not record.readyGate and not record.readyRequested then return end
+    local ok,err=pcall(UpdateReady,record,alpha,eligible,preview)
+    if not ok then
+        ClearReady(record); record.readyError=tostring(err); record.readyReason="ready renderer rejected"
+    end
 end
 
 local function RebuildGroups()
@@ -913,6 +1131,16 @@ local function UpdateCore()
                 end
             end
         end
+        local readyAlpha
+        if valid and not demo and DB.readyEffect~="none" then
+            local public=SafeNumber(visibility)
+            if public~=nil then readyAlpha=1-public
+            else
+                if not group.readyCurve then group.readyCurve=MakeCurve(cost,"ready") end
+                local alpha,ok=Evaluate(group.readyCurve)
+                if ok then readyAlpha=alpha end
+            end
+        end
         local directRange, countdownOK, source
         if valid and not demo and DB.progress == "countdown" then
             fill,deficit,countdownOK,source,directRange=Countdown(group,cost,fill,deficit)
@@ -920,10 +1148,11 @@ local function UpdateCore()
         end
         for _,record in ipairs(group.records) do
             record.renderError=nil
-            if not ApplyComboGate(record,comboAlpha,gateEnabled) then lastComboSource="native gate rejected" end
+            local comboOK=ApplyComboGate(record,comboAlpha,gateEnabled)
+            if not comboOK then lastComboSource="native gate rejected" end
             local excluded=not demo and IsExcluded(record)
             if excluded then
-                Clear(record); record.progressState="excluded"
+                Clear(record); ClearReady(record); record.progressState="excluded"
             elseif valid then
                 local alpha=1
                 if cooldownEnabled then
@@ -935,7 +1164,11 @@ local function UpdateCore()
                     alpha=cached.value
                     if cached.source=="unavailable" then lastCooldownSource="partial/unavailable" end
                 end
-                if not ApplyCooldownGate(record,alpha) then lastCooldownSource="partial/unavailable" end
+                local cooldownOK=ApplyCooldownGate(record,alpha)
+                if not cooldownOK then lastCooldownSource="partial/unavailable" end
+                local comboPublic=gateEnabled and record.finisher and SafeNumber(comboAlpha) or nil
+                local cooldownPublic=SafeNumber(alpha)
+                SafeUpdateReady(record,readyAlpha,not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0,false)
                 if directRange then
                     -- Retry on a new snapshot, style change, or reload, not every power event.
                     local failed=record.failedGroup==group and record.failedGeneration==group.generation and record.failedMode==DB.mode
@@ -957,7 +1190,7 @@ local function UpdateCore()
                     else record.progressState="energy" end
                     if not rendered and not record.mode then record.progressState="unavailable" end
                 end
-            else Clear(record); record.progressState="unavailable"; lastSource="energy unavailable" end
+            else Clear(record); ClearReady(record); record.progressState="unavailable"; lastSource="energy unavailable" end
         end
     end
     if refreshLiveStatus then refreshLiveStatus() end
@@ -1089,10 +1322,11 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.14.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.15.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
+    Say("ready effect: "..DB.readyEffect.." | protected fallback: "..tostring(DB.readyFallback).." (see diagnostics)")
     local finishers=0
     for _,record in ipairs(records) do if record.finisher and record.cost and record.cost>0 then finishers=finishers+1 end end
     Say("finisher gate: "..(DB.finisherComboOnly and "on" or "off").." | "..finishers.." finishers | "..lastComboSource)
@@ -1122,12 +1356,25 @@ local function DiagnosticReport()
         if type(loader)=="function" then local ok,value=pcall(loader,name); if ok and not IsSecret(value) and value then providers[#providers+1]=name end end
     end
     local p=performanceSample
+    local readySources,readyActuals={},{}
+    for _,record in ipairs(records) do
+        if record.cost and record.cost>0 then
+            local source=record.readyReason or "inactive"
+            local actual=record.readyActual or "none"
+            readySources[source]=(readySources[source] or 0)+1
+            readyActuals[actual]=(readyActuals[actual] or 0)+1
+            if record.readyError then errors[#errors+1]="Ready spell "..tostring(record.spellID)..": "..record.readyError end
+        end
+    end
+    local function Counts(t)
+        local parts={}; for key,n in pairs(t) do parts[#parts+1]=key..": "..n end; table.sort(parts); return table.concat(parts," | ")
+    end
     local fillFallback=0
     if DB.mode=="rising" and DB.tint and DB.fillEffect~="solid" then
         for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
     end
     local lines={
-        "Rogue Energy Sweep v0.14.0 diagnostic report",
+        "Rogue Energy Sweep v0.15.0 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
@@ -1138,6 +1385,9 @@ local function DiagnosticReport()
         "Color: "..ColorHex(ResolveColor()).." | opacity: "..math.floor(DB.opacity*100+.5).."% | thickness: "..DB.thickness,
         "Tint: "..tostring(DB.tint).." | tint opacity: "..math.floor(DB.tintOpacity*100+.5).."% | fill: "..DB.fillEffect,
         "Rising fill fallback buttons: "..fillFallback,
+        "Ready effect: "..DB.readyEffect.." | intensity: "..math.floor(DB.readyOpacity*100+.5).."% | match color: "..tostring(DB.readyMatchColor).." | pulse fallback: "..tostring(DB.readyFallback),
+        "Ready paths: "..Counts(readyActuals),
+        "Ready signals: "..Counts(readySources),
         "Actual progress: "..ProgressSummary(),
         "Energy source: "..lastSource.." | max energy used: "..lastMaxEnergy,
         "Finisher gate: "..tostring(DB.finisherComboOnly).." | "..lastComboSource,
@@ -1202,12 +1452,14 @@ local function OpenDiagnostics()
 end
 
 local optionsPanel, settingsCategory, refreshPanel, refreshAbilityFilters, abilityFilters
+local readyOptions,refreshReadyOptions
 local function ApplySettings()
     SaveAppearance()
     for _,record in pairs(overlays) do Style(record) end
     Update()
     if refreshPanel then refreshPanel() end
     if refreshAbilityFilters and abilityFilters and abilityFilters:IsShown() then refreshAbilityFilters() end
+    if refreshReadyOptions and readyOptions and readyOptions:IsShown() then refreshReadyOptions() end
 end
 
 -- Keep options availability separate from saved preferences.
@@ -1336,6 +1588,101 @@ local function OpenAbilityFilters()
     abilityFilters:Show(); refreshAbilityFilters()
 end
 
+local function OpenReadyOptions()
+    if not readyOptions then
+        local panel=CreateFrame("Frame","RogueEnergySweepReadyOptions",UIParent,"BasicFrameTemplateWithInset")
+        readyOptions=panel
+        panel:SetSize(480,342); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
+        if panel.TitleText then panel.TitleText:SetText("Energy ready effects") end
+        if UISpecialFrames then UISpecialFrames[#UISpecialFrames+1]=panel:GetName() end
+        local function Label(text,x,y,template)
+            local f=panel:CreateFontString(nil,"ARTWORK",template or "GameFontHighlightSmall")
+            f:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); f:SetText(text); return f
+        end
+        local function Button(text,x,y,w,click)
+            local b=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
+            b:SetSize(w,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); b:SetText(text); b:SetScript("OnClick",click); return b
+        end
+        local function Check(text,x,y,click)
+            local b=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate")
+            b:SetSize(24,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y)
+            local label=Label(text,x+28,y-6,"GameFontHighlight")
+            local hit=CreateFrame("Button",nil,panel)
+            hit:SetPoint("TOPLEFT",label,"TOPLEFT",-2,3); hit:SetPoint("BOTTOMRIGHT",label,"BOTTOMRIGHT",3,-3)
+            hit:SetScript("OnClick",function() if b:IsEnabled() then b:Click() end end)
+            b:SetScript("OnClick",function(self) click(self:GetChecked() and true or false); ApplySettings() end)
+            b.label=label; b.hit=hit
+            return b
+        end
+        Label("Show a separate effect when an ability has enough energy.",16,-36)
+        Label("Respects enabled filters; energy-ready does not guarantee castability.",16,-53)
+        local buttons={}
+        local descriptions={
+            none="No extra effect when energy is sufficient.",
+            burst="Native expanding cast-completion ring (one-shot).",
+            flash="Native cooldown-completion flipbook (one-shot).",
+            proc="Native animated spell activation glow (while ready).",
+            halo="Soft native proc halo (while ready).",
+            border="Thin gold or colored outline (while ready).",
+            pulse="Gently pulsing outline (while ready).",
+            softflash="Short additive flash across the icon (one-shot)."
+        }
+        local sample=CreateFrame("Frame",nil,panel)
+        sample:SetSize(56,56); sample:SetPoint("TOPLEFT",panel,"TOPLEFT",26,-247)
+        sample.icon=sample:CreateTexture(nil,"BACKGROUND"); sample.icon:SetAllPoints(sample); sample.icon:SetTexture("Interface\\Icons\\Ability_Rogue_Eviscerate")
+        local record=MakeOverlay(sample,true)
+        local function Preview()
+            ClearReady(record)
+            SafeUpdateReady(record,0,true,true)
+            SafeUpdateReady(record,1,true,true)
+        end
+        for i,entry in ipairs({{"none","None"},{"burst","Cast burst"},{"flash","Cooldown flash"},{"proc","Proc glow"},{"halo","Halo"},{"border","Border"},{"pulse","Pulse"},{"softflash","Soft flash"}}) do
+            local key,name=entry[1],entry[2]
+            buttons[key]=Button(name,16+((i-1)%4)*113,-75-math.floor((i-1)/4)*28,109,function()
+                DB.readyEffect=key; ApplySettings(); Preview()
+            end)
+        end
+        local description=Label("",16,-134)
+        local match=Check("Match indicator color",16,-153,function(v) DB.readyMatchColor=v; Preview() end)
+        local fallback=Check("Pulse if a one-shot trigger is protected",16,-178,function(v) DB.readyFallback=v end)
+        Label("The one-shot animation needs a readable transition.",44,-204)
+        local opacityText=Label("",240,-153)
+        local syncing=false
+        local slider=CreateFrame("Slider","RogueEnergySweepReadyOpacitySlider",panel,"OptionsSliderTemplate")
+        slider:SetPoint("TOPLEFT",panel,"TOPLEFT",240,-172); slider:SetSize(220,16)
+        -- Keep the intensity slider away from the long fallback label.
+        slider:ClearAllPoints(); slider:SetPoint("TOPLEFT",panel,"TOPLEFT",240,-233)
+        opacityText:ClearAllPoints(); opacityText:SetPoint("TOPLEFT",panel,"TOPLEFT",240,-215)
+        for _,suffix in ipairs({"Text","Low","High"}) do local l=_G["RogueEnergySweepReadyOpacitySlider"..suffix]; if l then l:SetText("") end end
+        slider:SetMinMaxValues(15,100); slider:SetValueStep(5)
+        if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+        slider:SetScript("OnValueChanged",function(_,v)
+            if not syncing then DB.readyOpacity=math.floor(v+.5)/100; ApplySettings(); Preview() end
+        end)
+        Button("Preview",100,-258,110,Preview)
+        Button("Done",350,-300,110,function() panel:Hide() end)
+        Label("Preview only; no spell is cast.",100,-286)
+        refreshReadyOptions=function()
+            syncing=true
+            for key,b in pairs(buttons) do
+                if b.LockHighlight and b.UnlockHighlight then
+                    if DB.readyEffect==key then b:LockHighlight() else b:UnlockHighlight() end
+                end
+            end
+            description:SetText(descriptions[DB.readyEffect] or "")
+            match:SetChecked(DB.readyMatchColor); fallback:SetChecked(DB.readyFallback)
+            local can=READY_ONESHOT[DB.readyEffect]==true
+            if can then fallback:Enable(); fallback.hit:Enable(); fallback.label:SetTextColor(1,1,1)
+            else fallback:Disable(); fallback.hit:Disable(); fallback.label:SetTextColor(.5,.5,.5) end
+            slider:SetValue(DB.readyOpacity*100)
+            opacityText:SetText(string.format("Effect intensity: %d%%",math.floor(DB.readyOpacity*100+.5)))
+            syncing=false
+        end
+        panel:SetScript("OnHide",function() ClearReady(record) end)
+    end
+    readyOptions:Show(); refreshReadyOptions()
+end
+
 local function CreateOptions()
     if optionsPanel then return end
     local panel=CreateFrame("Frame","RogueEnergySweepOptionsPanel")
@@ -1396,6 +1743,7 @@ local function CreateOptions()
     local progressButtons={}
     progressButtons.energy=Button("Energy-based",16,-layout.progressButtons,132,function() SetProgress("energy"); ApplySettings() end)
     progressButtons.countdown=Button("Countdown",156,-layout.progressButtons,132,function() SetProgress("countdown"); ApplySettings() end)
+    local readyButton=Button("Ready effects...",300,-layout.progressButtons,144,OpenReadyOptions)
     local liveStatus=Label("Countdown starts after spending energy (experimental).",16,-layout.progressStatus,"GameFontHighlightSmall")
     local previousStatus
     refreshLiveStatus=function()
@@ -1527,6 +1875,7 @@ local function CreateOptions()
                 fill=math.max(0,math.min(1,(previewEnergy-start)/(record.previewCost-start)))
             end
             Paint(record,fill,1-fill,previewEnergy<record.previewCost and 1 or 0)
+            SafeUpdateReady(record,previewEnergy>=record.previewCost and 1 or 0,true,true)
         end
         syncing=wasSyncing
     end
@@ -1540,6 +1889,7 @@ local function CreateOptions()
         filtersButton:SetText(totalFilters>0 and ("Filters ("..totalFilters..")...") or "Ability filters...")
         for key,b in pairs(modes) do SelectButton(b,key==DB.mode) end
         for key,b in pairs(progressButtons) do SelectButton(b,key==DB.progress) end
+        readyButton:SetText(DB.readyEffect=="none" and "Ready effects..." or ("Ready: "..DB.readyEffect.."..."))
         local tintAvailable,thicknessAvailable=StyleOptions(DB.mode)
         SetControlAvailable(tint,tintLabel,tintAvailable)
         if tintAvailable then tint.optionLabelHit:Show() else tint.optionLabelHit:Hide() end
@@ -1575,7 +1925,7 @@ local function CreateOptions()
         syncing=false
     end
     panel:SetScript("OnShow",refreshPanel)
-    panel:SetScript("OnHide",function() StopPreview(); if abilityFilters then abilityFilters:Hide() end end)
+    panel:SetScript("OnHide",function() StopPreview(); if abilityFilters then abilityFilters:Hide() end; if readyOptions then readyOptions:Hide() end; for _,record in ipairs(previewRecords) do ClearReady(record) end end)
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
         settingsCategory=Settings.RegisterCanvasLayoutCategory(panel,"Rogue Energy Sweep")
         Settings.RegisterAddOnCategory(settingsCategory)
@@ -1592,7 +1942,7 @@ local function OpenOptions()
     else Say("Settings unavailable; use /resweep help.") end
 end
 local function Help()
-    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | fill solid/gradient/luminous | resetstyle | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | fill solid/gradient/luminous | ready none/burst/flash/proc/halo/border/pulse/softflash | resetstyle | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
@@ -1602,6 +1952,10 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     elseif cmd == "status" then Status(); return
     elseif cmd == "filters" then OpenAbilityFilters(); return
     elseif cmd == "diagnostics" then OpenDiagnostics(); return
+    elseif cmd=="ready" then
+        if arg=="" then OpenReadyOptions(); return end
+        if not READY_EFFECTS[arg] then Help(); return end
+        DB.readyEffect=arg
     elseif cmd == "profile" and (arg=="on" or arg=="off") then
         if SetProfiling(arg=="on") then Say("Update profiling: "..arg) else Say("Performance timer unavailable.") end
         return

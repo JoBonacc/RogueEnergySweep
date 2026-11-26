@@ -351,3 +351,33 @@ assert(layout.fillEffect-(layout.tint-8+layout.sliderOffset+layout.sliderHeight)
 assert(layout.progress-(layout.fillEffect+layout.buttonHeight)>=10)
 assert(src:find('gradient:SetAllPoints(nativeFill)',1,true))
 print("PASS: rising gradient endpoints, additive blend, direction, solid fallback, appearance persistence and spacing")
+
+-- Readiness has its own native curve; it never needs 1-secret arithmetic.
+env.C_CurveUtil={CreateCurve=function() return {points={},AddPoint=function(self,x,y) self.points[#self.points+1]={x,y} end} end}
+near(eval(make(45,"ready"),.44),0); near(eval(make(45,"ready"),.45),1)
+near(eval(make(45,"ready"),.9),1); near(eval(make(120,"ready"),1),0)
+local readyEnv=setmetatable({issecretvalue=env.issecretvalue,READY_ONESHOT={burst=true,flash=true,softflash=true}},{__index=_G})
+local readyCode=section("local function IsSecret","local MODES")..section("local function ReadySignal","local function StopReadyVisual")
+local signal,transition,choice=assert(load(readyCode.."\nreturn ReadySignal,ReadyTransition,ReadyChoice","ready mocks","t",readyEnv))()
+local rr={spellID=1752}
+local ready,source=signal(rr,1); assert(ready==true and source=="public energy")
+assert(not transition(rr,ready,source)) -- no flash on first sample
+assert(not transition(rr,false,source)); assert(transition(rr,true,source)); assert(not transition(rr,true,source))
+assert(not transition(rr,nil,"protected threshold")); assert(not transition(rr,true,source))
+assert(choice("burst",nil,true)=="pulse" and choice("burst",nil,false)=="none")
+assert(choice("flash",false,true)=="flash" and choice("proc",nil,false)=="proc")
+readyEnv.C_Spell={IsSpellUsable=function(id) assert(id==1752); return false,true end}
+ready,source=signal(rr,secret); assert(ready==false and source=="public power usability")
+assert(not transition(rr,ready,source))
+readyEnv.C_Spell.IsSpellUsable=function() return true,false end
+ready,source=signal(rr,secret); assert(ready==true and transition(rr,ready,source))
+rr.finisher=true; ready,source=signal(rr,secret); assert(ready==nil and source=="protected threshold")
+rr.finisher=false; readyEnv.C_Spell.IsSpellUsable=function() return secret,secret end
+ready,source=signal(rr,secret); assert(ready==nil)
+assert(src:find('pcall(record.readyGate.SetAlpha,record.readyGate,alpha)',1,true))
+assert(src:find('SafeUpdateReady(record,readyAlpha,not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0',1,true))
+assert(src:find('Clear(record); ClearReady(record); record.progressState="excluded"',1,true))
+assert(src:find('UI-HUD-ActionBar-Casting-Complete-Glow',1,true))
+assert(src:find('UI-HUD-ActionBar-GCD-Flipbook',1,true))
+assert(src:find('UI-HUD-ActionBar-Proc-Loop-Flipbook',1,true))
+print("PASS: ready curve, public transition and source changes, protected fallback, filter wiring and native asset selection")
