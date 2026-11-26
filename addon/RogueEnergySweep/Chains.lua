@@ -138,7 +138,7 @@ local function Setup(record,entry)
             if count>=3 then break end
         end
     end
-    if #defs==0 then Clear(record); return end
+    if #defs==0 then if tracked[record] then tracked[record].count=0 end; Clear(record); return end
     local r=tracked[record]
     if not r then
         if InCombatLockdown and InCombatLockdown() then return end
@@ -148,7 +148,11 @@ local function Setup(record,entry)
     end
     r.count=#defs; r.frame:SetAlpha(cfg.opacity)
     for i,d in ipairs(defs) do
-        local p=r.pips[i] or NewPip(r.frame); r.pips[i]=p
+        local p=r.pips[i]
+        if not p then
+            if InCombatLockdown and InCombatLockdown() then r.count=i-1; break end
+            p=NewPip(r.frame); r.pips[i]=p
+        end
         local texture=d.kind=="repeat" and CIRCLE or DIAMOND
         p.frame:SetSize(cfg.size,cfg.size); p.frame:ClearAllPoints()
         if d.kind=="repeat" then
@@ -159,12 +163,12 @@ local function Setup(record,entry)
         p.bg:SetTexture(texture); p.bg:SetVertexColor(.15,.13,.11,.85)
         p.bar:SetStatusBarTexture(texture)
         local color=GetColor(d.id); p.bar:SetStatusBarColor(color[1],color[2],color[3],1)
-        p.curve,p.key=Curve(d.lo,d.hi,d.partial)
+        p.curve,p.key=Curve(d.lo,d.hi,d.partial and d.hi>d.lo)
         -- Hide-inactive uses a separate readiness curve, not a Lua test on energy.
         p.alphaCurve,p.alphaKey=Curve(0,d.partial and math.min(d.hi,d.lo+.5) or d.hi,false)
         p.bar:SetValue(0); p.frame:SetAlpha(1); p.frame:Show()
     end
-    for i=#defs+1,#r.pips do r.pips[i].frame:Hide() end
+    for i=r.count+1,#r.pips do r.pips[i].frame:Hide() end
 end
 function C.Sync(records,max)
     if not cfg or not api then return end
@@ -178,6 +182,7 @@ function C.Sync(records,max)
     local key=table.concat(bits,"|")
     if key~=signature or (not InCombatLockdown or not InCombatLockdown()) then
         signature=key; C.Hide(); curves={}; samples={}
+        for _,r in pairs(tracked) do r.count=0 end
         if cfg.enabled then
             for _,r in ipairs(records) do
                 local e=catalog[r.spellID]
@@ -199,7 +204,7 @@ local function Sample(curve,key)
 end
 function C.Update(record,eligible)
     local r=tracked[record]
-    if not cfg.enabled or not eligible or not r then Clear(record); return end
+    if not cfg.enabled or not eligible or not r or r.count==0 then Clear(record); return end
     local ok,err=pcall(function()
         for i=1,r.count do
             local p=r.pips[i]; local value,valid=Sample(p.curve,p.key)

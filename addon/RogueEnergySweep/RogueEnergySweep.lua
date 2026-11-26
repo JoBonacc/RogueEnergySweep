@@ -1521,7 +1521,7 @@ end
 local OPTION_LAYOUT = {
     thickness=198, tint=240, fillEffect=274, progress=309, progressButtons=327, progressStatus=356,
     appearance=381, colors=399, colorLabel=427, opacity=427,
-    preview=477, previewSliders=495, previewIcons=541, previewCosts=594, footer=616,
+    preview=477, previewSliders=495, previewIcons=541, previewCosts=594, footer=654,
     sliderOffset=20, sliderHeight=16, buttonHeight=24
 }
 

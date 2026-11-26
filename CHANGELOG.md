@@ -1,6 +1,7 @@
 # Changelog
 
 ## v0.17.0
+- Add four icon-free Energy Breakpoints layouts: Segments, Staircase, Lights and Arc. Unique public ability costs determine the stationary thresholds; current energy fills native widgets.
 - Add optional Ability Chains repeat and follow-up pips with templates, per-ability rules and colors, partial repeat progress, size/spacing/opacity/offset settings, and configurable assumed energy per GCD.
 - Add experimental GCD-aware readiness using public GCD timing and regeneration; protected timing falls back to actual energy. Countdown snapshots remain actual-energy based.
 

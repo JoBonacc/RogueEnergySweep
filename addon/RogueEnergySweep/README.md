@@ -71,3 +71,6 @@ Open **Energy Tracker...** or `/resweep tracker`. Enable the optional standalone
 
 ## Ability Chains and GCD-aware readiness
 `/resweep chains` opens per-ability repeat and follow-up pip rules. Circles show repeat affordability (optional partial next pip); diamonds show alternative follow-ups, not additive promises. Templates replace rule overrides. Defaults off; configurable assumed energy per GCD (10 by default), not cooldown or combo forecasts. `/resweep gcd on` enables experimental GCD-aware readiness when remaining GCD and regen are public and the spell is confirmed on-GCD; otherwise actual energy is used. Countdown progress itself remains actual-energy based. See diagnostics.
+
+### Energy Breakpoints
+Select Segments, Staircase, Lights, or Arc in Energy Tracker. Cost thresholds are unique and automatically sorted from tracked spells and current talent-adjusted costs; use manual selection for fewer markers. Shared gauges display actual energy and keep geometry fixed when cooldown or combo states change. The arc uses the native radial fill with static separators, rather than a separate cropped ring for every segment. The GCD option also applies to individual tracker rows/icons/rings, not shared gauges.

@@ -10,7 +10,10 @@ local layoutOK=false
 local WHITE="Interface\\Buttons\\WHITE8X8"
 local DIAL="Interface\\AddOns\\RogueEnergySweep\\TrackerDial"
 local RING="Interface\\AddOns\\RogueEnergySweep\\TrackerRing"
-local layouts={dial=true,bars=true,icons=true,freeform=true,rings=true}
+local layouts={dial=true,bars=true,icons=true,freeform=true,rings=true,segments=true,staircase=true,lights=true,arc=true}
+local breakpointLayouts={segments=true,staircase=true,lights=true,arc=true}
+local breakpointFrame,breakpointPool,breakpointRows,breakpointCurve=nil,{}, {},nil
+local DIAMOND="Interface\\AddOns\\RogueEnergySweep\\ChainDiamond"
 local modes={rising=true,bar=true,perimeter=true,radial=true}
 local colors={amber={1,.78,.16},white={1,1,1},cyan={.22,.85,1},green={.3,1,.35},red={1,.24,.24},purple={.72,.42,1},orange={1,.48,.12}}
 local function number(v,default,lo,hi)
@@ -229,9 +232,143 @@ local function SetupDial()
     dial.curve=api.curve(maximum,"dial"); dial.fullCurve=api.curve(maximum,"fill")
     dial.frame:Show()
 end
+-- Unique, public cost thresholds. Never move the geometry based on
+-- available energy, cooldowns, or combo points.
+local function Breakpoints(entries,max)
+    local seen={[0]=true,[max]=true}
+    for _,e in ipairs(entries) do
+        if e.cost and e.cost>0 and e.cost<=max then seen[e.cost]=true end
+    end
+    local points={}
+    for v in pairs(seen) do points[#points+1]=v end
+    table.sort(points)
+    return points
+end
+local function BreakpointItem(index)
+    local item=breakpointPool[index]
+    if item then return item end
+    local frame=Frame(breakpointFrame)
+    local track=Texture(frame,WHITE,"BACKGROUND")
+    local bar=Bar(frame)
+    local base=Texture(frame,DIAMOND,"ARTWORK")
+    local light=Texture(frame,DIAMOND,"OVERLAY")
+    local label=Label(frame,"")
+    local marker=Texture(frame,WHITE,"OVERLAY")
+    item={frame=frame,track=track,bar=bar,base=base,light=light,label=label,marker=marker}
+    breakpointPool[index]=item
+    return item
+end
+local function SetupBreakpoints(entries)
+    if not breakpointFrame then breakpointFrame=Frame(root) end
+    breakpointFrame:ClearAllPoints(); breakpointFrame:SetAllPoints(root)
+    for _,item in ipairs(breakpointPool) do item.frame:Hide() end
+    breakpointRows={}
+    local points=Breakpoints(entries,maximum)
+    local w=cfg.barWidth
+    local r,g,b=Color()
+    local arc=cfg.layout=="arc"
+    local lights=cfg.layout=="lights"
+    local stair=cfg.layout=="staircase"
+    local height=cfg.barHeight
+    if arc then
+        root:SetSize(220,204)
+        SetupDial()
+        dial.frame:SetSize(170,170)
+        dial.backup:SetPoint("CENTER",dial.frame,"CENTER",0,-35)
+    else
+        root:SetSize(w+18,stair and math.min(120,height+6*(#points-2))+28 or height+34)
+    end
+    for i,low in ipairs(points) do
+        local high=points[i+1]
+        local item=BreakpointItem(i)
+        item.frame:ClearAllPoints(); item.frame:SetAllPoints(breakpointFrame)
+        item.track:Hide(); item.bar:Hide(); item.base:Hide(); item.light:Hide(); item.label:Hide(); item.marker:Hide()
+        item.track:ClearAllPoints(); item.bar:ClearAllPoints(); item.base:ClearAllPoints(); item.light:ClearAllPoints()
+        item.label:ClearAllPoints(); item.marker:ClearAllPoints()
+        item.curve=nil; item.segment=false; item.threshold=low
+        local x=(low/maximum-.5)*w
+        local y=-4
+        if arc then
+            if i>1 and i<#points then
+                local px,py=DialPoint(low,maximum,72)
+                item.marker:SetSize(3,21)
+                item.marker:SetPoint("CENTER",item.frame,"CENTER",px,py)
+                local angle=low/maximum*math.pi*1.5
+                if item.marker.SetRotation then pcall(item.marker.SetRotation,item.marker,-angle) end
+                item.marker:SetVertexColor(.08,.07,.05,1); item.marker:Show()
+            end
+            if cfg.showCosts then
+                local px,py=DialPoint(low,maximum,101)
+                item.label:SetPoint("CENTER",item.frame,"CENTER",px,py)
+                item.label:SetText(tostring(low)); item.label:Show()
+            end
+        elseif lights then
+            if i==1 then
+                item.bar:SetSize(w,math.max(3,height*.4)); item.bar:SetPoint("CENTER",item.frame,"CENTER",0,y)
+                item.track:SetAllPoints(item.bar); item.track:SetVertexColor(.22,.20,.16,.9); item.track:Show()
+                item.bar:SetStatusBarColor(r,g,b,cfg.opacity); item.bar:SetMinMaxValues(0,1); item.segment=true
+            end
+            if i>1 then
+                local size=math.min(17,math.max(10,height*.75))
+                item.base:SetSize(size,size); item.base:SetPoint("CENTER",item.frame,"CENTER",x,y)
+                item.base:SetVertexColor(.28,.25,.20,1); item.base:Show()
+                item.light:SetAllPoints(item.base); item.light:SetVertexColor(r,g,b,cfg.opacity); item.light:SetBlendMode("ADD"); item.light:SetAlpha(0); item.light:Show()
+                item.curve=api.curve(low,"ready")
+            end
+        elseif high then
+            local width=math.max(1,(high-low)/maximum*w-2)
+            local h=stair and math.min(120,height+6*(i-1)) or height
+            item.bar:SetSize(width,h); item.bar:SetPoint("BOTTOMLEFT",item.frame,"CENTER",x+1,y)
+            item.track:SetAllPoints(item.bar); item.track:SetVertexColor(.18,.17,.14,.9); item.track:Show()
+            local shade=.62+.38*i/math.max(1,#points-1)
+            item.bar:SetStatusBarColor(r*shade,g*shade,b*shade,cfg.opacity)
+            item.bar:SetMinMaxValues(low/maximum,high/maximum); item.segment=true
+        end
+        if not arc and cfg.showCosts then
+            -- Very close cost thresholds still keep their visual marker; omit
+            -- a colliding numeric label rather than shift its logical position.
+            local previous=points[i-1]
+            if not previous or (low-previous)/maximum*w>=18 or i==#points then
+                item.label:SetText(tostring(low)); item.label:SetPoint("TOP",item.frame,"CENTER",x,y-(lights and 10 or 4))
+                item.label:Show()
+            end
+        end
+        item.frame:Show(); breakpointRows[#breakpointRows+1]=item
+    end
+    breakpointCurve=api.curve(maximum,"fill")
+    breakpointFrame:Show()
+end
+local function UpdateBreakpoints(demo)
+    if not breakpointFrame then return end
+    local value,ok
+    if demo then value,ok=.5,true else value,ok=api.evaluate(breakpointCurve) end
+    if not ok and type(UnitPower)=="function" then
+        local success,v=pcall(UnitPower,"player",Enum and Enum.PowerType and Enum.PowerType.Energy or 3)
+        local raw=success and api.safe(v) or nil
+        if raw then value=math.max(0,math.min(1,raw/maximum)); ok=true end
+    end
+    for _,item in ipairs(breakpointRows) do
+        if item.segment then
+            if ok and pcall(item.bar.SetValue,item.bar,value) then item.bar:Show() else item.bar:Hide() end
+        end
+        if item.curve then
+            local alpha,good
+            if demo then alpha,good=maximum*.5>=item.threshold and 1 or 0,true
+            else alpha,good=api.evaluate(item.curve) end
+            if good and pcall(item.light.SetAlpha,item.light,alpha) then item.light:Show() else item.light:Hide() end
+        end
+    end
+    source=ok and "native breakpoint fill" or "breakpoint energy unavailable"
+end
 local function Layout(entries)
     EnsureRoot()
     root:SetScale(cfg.scale); PositionRoot()
+    if dial then dial.frame:Hide() end
+    if breakpointFrame then breakpointFrame:Hide() end
+    if breakpointLayouts[cfg.layout] then
+        for _,row in ipairs(pool) do ClearRow(row) end
+        SetupBreakpoints(entries); SetLocked(); return
+    end
     local n=#entries; local size=cfg.iconSize; local gap=cfg.spacing
     local dialPositions,lanes={},{}
     local extent=130
@@ -346,7 +483,7 @@ function T.Sync(records,maxEnergy)
 end
 function T.Costs() return costs end
 function T.Begin(demo)
-    if not cfg or not cfg.enabled or not root or not layoutOK or (#rows==0 and cfg.layout~="dial") then T.Hide(); return false end
+    if not cfg or not cfg.enabled or not root or not layoutOK or (#rows==0 and cfg.layout~="dial" and not breakpointLayouts[cfg.layout]) then T.Hide(); return false end
     active=true; root:Show(); return true
 end
 function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,comboEnabled,cooldowns,cooldownEnabled,demo)
@@ -354,6 +491,10 @@ function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,com
     for _,row in ipairs(byCost[cost]) do
         local ok,err=pcall(function()
             if not valid then ClearRow(row); return end
+            local fill,deficit,visibility,ready=fill,deficit,visibility,ready
+            if api.project and cfg.layout~="dial" and not demo then
+                fill,deficit,visibility,ready,row.overlay.gcdProjected=api.project(row.spellID,cost,fill,deficit,visibility,ready,db.progress=="countdown")
+            end
             local c=1
             if comboEnabled and row.finisher then c=combo end
             local cd=1
@@ -384,7 +525,12 @@ function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,com
     end
 end
 function T.Finish(demo)
-    if cfg.layout~="dial" or not dial then return end
+    if breakpointLayouts[cfg.layout] and cfg.layout~="arc" then
+        local ok,err=pcall(UpdateBreakpoints,demo)
+        if not ok then lastError=tostring(err); source="breakpoint renderer rejected" end
+        return
+    end
+    if (cfg.layout~="dial" and cfg.layout~="arc") or not dial then return end
     local ok,err=pcall(function()
         local value,valid
         if demo then value,valid=.375,true else value,valid=api.evaluate(dial.curve) end
@@ -407,7 +553,7 @@ function T.Finish(demo)
 end
 function T.Status()
     if not cfg then return "not initialized" end
-    return (cfg.enabled and cfg.layout or "off").." | "..#rows.." abilities | action bars "..tostring(cfg.actionBars).." | dial "..source.." | last error "..lastError
+    return (cfg.enabled and cfg.layout or "off").." | "..(breakpointLayouts[cfg.layout] and (#breakpointRows.." breakpoints") or (#rows.." abilities")).." | action bars "..tostring(cfg.actionBars).." | dial "..source.." | last error "..lastError
 end
 function T.Command(arg)
     if arg=="on" then cfg.enabled=true
@@ -422,14 +568,15 @@ function T.Open()
     if not cfg then return end
     if not panel then
         panel=CreateFrame("Frame","RogueEnergySweepTrackerOptions",UIParent,"BasicFrameTemplateWithInset")
-        panel:SetSize(500,548); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
+        panel:SetSize(500,580); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
         if panel.TitleText then panel.TitleText:SetText("Energy Tracker") end
         if UISpecialFrames then table.insert(UISpecialFrames,panel:GetName()) end
+        local function Offset(y) return y<=-118 and y-30 or y end
         local function Text(text,x,y)
-            local f=Label(panel,text); f:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); return f
+            local f=Label(panel,text); f:SetPoint("TOPLEFT",panel,"TOPLEFT",x,Offset(y)); return f
         end
         local function Button(text,x,y,w,click)
-            local b=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate"); b:SetSize(w,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); b:SetText(text); b:SetScript("OnClick",click); return b
+            local b=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate"); b:SetSize(w,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,Offset(y)); b:SetText(text); b:SetScript("OnClick",click); return b
         end
         local function Change(key,value)
             cfg[key]=value
@@ -440,7 +587,7 @@ function T.Open()
         local checks={}
         local function Check(key,text,x,y)
             local b=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate")
-            b:SetSize(24,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y)
+            b:SetSize(24,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,Offset(y))
             local l=Text(text,x+28,y-6)
             local hit=CreateFrame("Button",nil,panel); hit:SetPoint("TOPLEFT",l,"TOPLEFT",-2,3); hit:SetPoint("BOTTOMRIGHT",l,"BOTTOMRIGHT",3,-3)
             hit:SetScript("OnClick",function() b:Click() end)
@@ -453,6 +600,9 @@ function T.Open()
         for i,e in ipairs({{"dial","Dial"},{"bars","Bars"},{"icons","Icons"},{"freeform","Freeform"},{"rings","Rings"}}) do
             local key=e[1]; buttons[key]=Button(e[2],16+(i-1)*94,-88,90,function() Change("layout",key) end)
         end
+        for i,e in ipairs({{"segments","Segments"},{"staircase","Staircase"},{"lights","Lights"},{"arc","Arc"}}) do
+            local key=e[1]; buttons[key]=Button(e[2],16+(i-1)*117,-117,113,function() Change("layout",key) end)
+        end
         local styles={}
         for i,e in ipairs({{"rising","Rising"},{"bar","Bottom"},{"perimeter","Perimeter"},{"radial","Radial"}}) do
             local key=e[1]; styles[key]=Button(e[2],16+(i-1)*117,-118,113,function() Change("iconMode",key) end)
@@ -462,7 +612,7 @@ function T.Open()
         local function Slider(key,label,x,y,lo,hi,step,factor)
             local l=Text(label,x,y)
             local b=CreateFrame("Slider","RogueEnergySweepTracker"..key,panel,"OptionsSliderTemplate")
-            b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y-18); b:SetSize(210,16); b:SetMinMaxValues(lo,hi); b:SetValueStep(step)
+            b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,Offset(y)-18); b:SetSize(210,16); b:SetMinMaxValues(lo,hi); b:SetValueStep(step)
             if b.SetObeyStepOnDrag then b:SetObeyStepOnDrag(true) end
             for _,suffix in ipairs({"Text","Low","High"}) do local t=_G[b:GetName()..suffix]; if t then t:SetText("") end end
             b:SetScript("OnValueChanged",function(_,v) if not syncing then Change(key,math.floor(v+.5)/factor) end end)
@@ -485,7 +635,7 @@ function T.Open()
         local page=1; local choices={}
         for i=1,6 do
             local x=16+((i-1)%2)*235; local y=-400-math.floor((i-1)/2)*28
-            local b=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate"); b:SetSize(24,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y)
+            local b=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate"); b:SetSize(24,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,Offset(y))
             local l=Text("",x+28,y-6); local row={b=b,l=l}
             b:SetScript("OnClick",function(self) if row.id then cfg.selected[row.id]=self:GetChecked() and true or nil; api.apply() end end)
             choices[i]=row

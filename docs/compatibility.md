@@ -50,3 +50,4 @@ Only after all relevant checks pass, record build, addon version, date, client c
 
 ## v0.17.0 checklist
 - [ ] Configure repeat and follow-up pips, check colors, partial fills, templates, cap, placement, talent changes, and energy-only predictions. Test GCD projection with public and protected timing, off-GCD spells, no GCD, and cooldown/combo filters. Inspect diagnostic paths.
+- [ ] Test all four breakpoint layouts, duplicate/talent-adjusted costs, manual selection, protected energy, labels, arc alignment, stable markers during cooldowns/finishers, and tracker GCD projection.

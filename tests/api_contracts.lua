@@ -529,3 +529,27 @@ local repeatCost,followCost=assert(load(chainSrc:sub(first,last-1).."\nreturn Re
 assert(repeatCost(45,2,10)==80 and repeatCost(35,3,10)==85 and followCost(45,60,10)==95)
 assert(followCost(45,25,10)==60 and followCost(45,5,10)==45)
 print("PASS: repeat and follow-up threshold math")
+
+local bpSource=assert(io.open("addon/RogueEnergySweep/Tracker.lua")); local bpText=bpSource:read("*a"); bpSource:close()
+local bpFirst=assert(bpText:find("local function Breakpoints",1,true)); local bpLast=assert(bpText:find("local function BreakpointItem",bpFirst,true))
+local points=assert(load(bpText:sub(bpFirst,bpLast-1).."\nreturn Breakpoints","breakpoints","t",_G))()
+local bp=points({{cost=25},{cost=45},{cost=45},{cost=60},{cost=120}},100)
+assert(#bp==5 and bp[1]==0 and bp[2]==25 and bp[3]==45 and bp[4]==60 and bp[5]==100)
+bp=points({{cost=25},{cost=35},{cost=45},{cost=60}},100)
+assert(#bp==6 and bp[3]==35)
+print("PASS: unique breakpoint costs, over-cap handling and talent change")
+local gcdNS={}
+local gcdEnv=setmetatable({C_CurveUtil=env.C_CurveUtil,issecretvalue=env.issecretvalue,GetPowerRegen=function() return 10,10 end,
+    C_Spell={GetSpellCooldownDuration=function() return {GetRemainingDuration=function() return 1 end} end,
+        GetSpellCooldown=function(id) return {isOnGCD=id==1} end}},{__index=_G})
+assert(loadfile("addon/RogueEnergySweep/GCD.lua","t",gcdEnv))("RogueEnergySweep",gcdNS)
+local gcd=gcdNS.GCD
+gcd.Configure({safe=function(v) if type(v)=="number" then return v end end,secret=env.issecretvalue,evaluate=function(c) return eval(c,.55),true end})
+gcd.Init({gcdAware=true}); gcd.CooldownEvent({{spellID=1},{spellID=2}}); gcd.Begin(100,false)
+local gf,gd,gv,gr,projected=gcd.Project(1,60,.55/ .6,1-.55/.6,1,0,false)
+near(gf,1); near(gd,0); near(gv,0); near(gr,1); assert(projected)
+gf,gd,gv,gr,projected=gcd.Project(2,60,.5,.5,1,0,false); near(gf,.5); near(gv,1); assert(not projected)
+gf,gd,gv,gr,projected=gcd.Project(1,60,secret,secret,1,0,true); assert(rawequal(gf,secret) and rawequal(gd,secret)); near(gv,0); assert(projected)
+gcdEnv.C_Spell.GetSpellCooldownDuration=function() return {GetRemainingDuration=function() return secret end} end
+gcd.Begin(100,false); gf,gd,gv,gr,projected=gcd.Project(1,60,.5,.5,1,0,false); near(gf,.5); assert(not projected)
+print("PASS: GCD projection, off-GCD exclusion, native countdown preservation and protected fallback")
