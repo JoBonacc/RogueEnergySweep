@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.0
+- Add eight named color swatches and a native custom RGB color picker, with live action-bar and options previews, cancel restoration and saved custom color.
+- Support exact hex colors through `/resweep color #RRGGBB`; preserve existing presets, default gold and the legacy black-preset behavior. Opacity remains separate.
+- Add regression tests for color migration, RGB/hex validation, picker callbacks and cancellation. No changes to countdown or energy rendering logic beyond color selection. Native picker needs live-client verification.
+
 ## v0.7.1
 - Correct actual-progress labels in chat and options (e.g. `native countdown: 5` instead of `5: 5`).
 - Add a regression test for mixed progress states and empty indicators.

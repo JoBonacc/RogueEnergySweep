@@ -1,4 +1,4 @@
-# Rogue Energy Sweep v0.7.1 — experimental
+# Rogue Energy Sweep v0.8.0 — experimental
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
@@ -10,7 +10,7 @@ Replace the old `RogueEnergySweep` folder under `Interface/AddOns/` with the fol
 - Perimeter: fills clockwise along the top, right, bottom, and left edges.
 - Radial sweep: legacy deficit shading, with native default full-circle geometry restored from v0.1.0. Live verification pending.
 
-All four indicators support two progress modes. Energy-based (default) shows the fraction of the ability cost accumulated. Countdown (experimental) starts at zero progress using a post-spend snapshot and fills toward affordability: after spending 45 of 60 energy, the next 45-energy ability progresses from 0% at 15 energy to 50% at 30 energy and disappears at 45. The sweep shows the remaining fraction. Another spend restarts the countdown for affected abilities; a refund advances it. All indicators disappear at affordability. Both modes follow actual energy rather than a fixed time estimate. The options preview has a second slider in countdown mode for post-spend starting energy. The standard cooldown/GCD is not modified. The new options panel has color presets, opacity (15–100%), indicator thickness (2–8 UI units; linear indicators), optional rising fill tint, combat-only and enable switches, three sample icons with a simulated energy slider, a five-second action-bar test, and reset defaults.
+All four indicators support two progress modes. Energy-based (default) shows the fraction of the ability cost accumulated. Countdown (experimental) starts at zero progress using a post-spend snapshot and fills toward affordability: after spending 45 of 60 energy, the next 45-energy ability progresses from 0% at 15 energy to 50% at 30 energy and disappears at 45. The sweep shows the remaining fraction. Another spend restarts the countdown for affected abilities; a refund advances it. All indicators disappear at affordability. Both modes follow actual energy rather than a fixed time estimate. The options preview has a second slider in countdown mode for post-spend starting energy. The standard cooldown/GCD is not modified. The new options panel has eight color swatches, a native custom RGB color picker with live preview and cancel restoration, opacity (15–100%), indicator thickness (2–8 UI units; linear indicators), optional rising fill tint, combat-only and enable switches, three sample icons with a simulated energy slider, a five-second action-bar test, and reset defaults.
 
 ## Commands
 - `/resweep` or `/resweep options`: open options.
@@ -18,7 +18,7 @@ All four indicators support two progress modes. Energy-based (default) shows the
 - `/resweep status`: display renderer counts, curve source, last caught API error and interface compatibility.
 - `/resweep mode rising|bar|perimeter|radial`: change style.
 - `/resweep progress energy|countdown`: switch progress mode across all four styles.
-- `/resweep color amber|white|cyan|green|black`: change color. Black is radial-only; linear styles use white instead.
+- `/resweep color amber|white|cyan|green|red|purple|orange|black` or `/resweep color #RRGGBB`: change color. The legacy black preset uses white in linear styles; a custom RGB color applies exactly to every style. Opacity is separate. If the native picker is unavailable, use the hex command.
 - `/resweep opacity 90`: change opacity.
 - `/resweep thickness 4`: change line/bar thickness.
 - `/resweep combat`: toggle combat-only.

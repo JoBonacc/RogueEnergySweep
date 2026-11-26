@@ -138,3 +138,31 @@ summaryEnv.records[5].progressState="energy fallback"
 summaryEnv.records[6]={cost=0,progressState="energy"}
 assert(summary()=="native countdown: 4 | energy fallback: 1")
 print("PASS: actual progress diagnostic labels and mixed counts")
+
+-- Test the actual color settings and native picker callback wiring.
+local colorEnv=setmetatable({RogueEnergySweepDB={color="cyan"}},{__index=_G})
+local colorCode=section("local function IsSecret","local function RefreshMaxEnergy")
+local init,resolve,hex,setCustom,setHex,openPicker,getDB=assert(load("local DB\n"..colorCode.."\nreturn InitDB,ResolveColor,ColorHex,SetCustomColor,SetColorHex,OpenCustomColorPicker,function() return DB end","color mocks","t",colorEnv))()
+init(); assert(getDB().color=="cyan" and hex(resolve())=="#38D9FF")
+assert(setHex("#AB12EF") and hex(resolve())=="#AB12EF")
+assert(not setHex("#123") and not setHex("xyzxyz") and hex(resolve())=="#AB12EF")
+assert(not setCustom(nil,1,0) and not setCustom(math.huge,0,0))
+assert(setCustom(-1,2,.5) and hex(resolve())=="#00FF80")
+init(); assert(getDB().color=="custom" and hex(resolve())=="#00FF80")
+local updates=0
+local function applied() updates=updates+1 end
+assert(not openPicker(applied))
+local picker={}
+function picker:SetupColorPickerAndShow(info) self.info=info end
+function picker:GetColorRGB() return .1,.2,.3 end
+colorEnv.ColorPickerFrame=picker
+getDB().color="amber"
+assert(openPicker(applied) and picker.info.hasOpacity==false)
+assert(picker.info.r==1 and picker.info.g==.78)
+picker.info.swatchFunc(); assert(getDB().color=="custom" and hex(resolve())=="#1A334D" and updates==1)
+picker.info.cancelFunc(); assert(getDB().color=="amber" and updates==2 and hex(getDB().customColor)=="#00FF80")
+assert(setHex("112233")); assert(openPicker(applied)); picker.info.swatchFunc(); picker.info.cancelFunc()
+assert(getDB().color=="custom" and hex(resolve())=="#112233")
+getDB().customColor={0/0,1,1}; init(); assert(getDB().color=="amber" and getDB().customColor==nil)
+colorEnv.RogueEnergySweepDB={}; init(); assert(getDB().color=="amber")
+print("PASS: color preset migration, custom RGB and hex, picker live callbacks and cancellation")

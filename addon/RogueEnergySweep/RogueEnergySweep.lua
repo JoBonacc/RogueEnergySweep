@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.7.1 (WoW Forever)
+-- Rogue Energy Sweep 0.8.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -30,14 +30,69 @@ local function SafeNumber(value)
 end
 
 local MODES = {bar=true, rising=true, perimeter=true, radial=true, auto=true}
-local COLORS = {amber={1,0.78,0.16}, white={1,1,1}, cyan={0.22,0.85,1}, green={0.3,1,0.35}, black={0,0,0}}
+local COLORS = {amber={1,0.78,0.16}, white={1,1,1}, cyan={0.22,0.85,1}, green={0.3,1,0.35}, black={0,0,0}, red={1,0.24,0.24}, purple={0.72,0.42,1}, orange={1,0.48,0.12}}
+local PRESETS = {{"amber","Gold"},{"white","White"},{"cyan","Cyan"},{"green","Green"},{"red","Red"},{"purple","Purple"},{"orange","Orange"},{"black","Black"}}
+local function ValidRGB(r,g,b)
+    r,g,b=SafeNumber(r),SafeNumber(g),SafeNumber(b)
+    if not r or not g or not b then return nil end
+    return {math.max(0,math.min(1,r)),math.max(0,math.min(1,g)),math.max(0,math.min(1,b))}
+end
+local function ResolveColor()
+    local c=DB.customColor
+    if DB.color=="custom" and type(c)=="table" then
+        return ValidRGB(c[1],c[2],c[3]) or COLORS.amber
+    end
+    return COLORS[DB.color] or COLORS.amber
+end
+local function ColorHex(c)
+    return string.format("#%02X%02X%02X",math.floor(c[1]*255+0.5),math.floor(c[2]*255+0.5),math.floor(c[3]*255+0.5))
+end
+local function SetCustomColor(r,g,b)
+    local c=ValidRGB(r,g,b)
+    if not c then return false end
+    DB.color="custom"; DB.customColor=c
+    return true
+end
+local function SetColorHex(value)
+    local hex=value:match("^#?(%x%x%x%x%x%x)$")
+    if not hex then return false end
+    return SetCustomColor(tonumber(hex:sub(1,2),16)/255,tonumber(hex:sub(3,4),16)/255,tonumber(hex:sub(5,6),16)/255)
+end
+local function OpenCustomColorPicker(apply)
+    local picker=ColorPickerFrame
+    if not picker or not picker.SetupColorPickerAndShow or not picker.GetColorRGB then
+        return false
+    end
+    local previous=DB.color
+    local saved=DB.customColor
+    local original=saved and {saved[1],saved[2],saved[3]} or nil
+    local c=ResolveColor()
+    local function restore()
+        DB.color=previous; DB.customColor=original
+        apply()
+    end
+    local ok=pcall(function()
+        picker:SetupColorPickerAndShow({
+            r=c[1],g=c[2],b=c[3],hasOpacity=false,
+            swatchFunc=function()
+                if SetCustomColor(picker:GetColorRGB()) then apply() end
+            end,
+            cancelFunc=restore
+        })
+    end)
+    if not ok then restore(); return false end
+    return true
+end
 local function InitDB()
     if type(RogueEnergySweepDB) ~= "table" then RogueEnergySweepDB = {} end
     DB = RogueEnergySweepDB
     if type(DB.enabled) ~= "boolean" then DB.enabled = true end
     DB.combatOnly = DB.combatOnly == true
     if not MODES[DB.mode] or DB.mode == "auto" then DB.mode = "rising" end
-    if not COLORS[DB.color] then DB.color = "amber" end
+    if type(DB.customColor)=="table" then
+        DB.customColor=ValidRGB(DB.customColor[1],DB.customColor[2],DB.customColor[3])
+    else DB.customColor=nil end
+    if not COLORS[DB.color] and not (DB.color=="custom" and DB.customColor) then DB.color = "amber" end
     DB.thickness = math.floor(math.max(2, math.min(8, SafeNumber(DB.thickness) or 4))+0.5)
     DB.tint = DB.tint ~= false
     if DB.progress ~= "countdown" then DB.progress = "energy" end
@@ -187,7 +242,7 @@ end
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 local function Style(record)
-    local color = COLORS[DB.color] or COLORS.amber
+    local color = ResolveColor()
     local r,g,b = color[1],color[2],color[3]
     -- Black remains useful for radial shading; use a visible light fill for linear styles.
     local lr,lg,lb = r,g,b
@@ -728,7 +783,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.7.1 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.8.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -793,12 +848,35 @@ local function CreateOptions()
         if previousStatus~=message then liveStatus:SetText(message); previousStatus=message end
     end
     Label("Indicator color",16,-232)
-    local colors={}
-    for i,entry in ipairs({{"amber","Gold"},{"white","White"},{"cyan","Cyan"},{"green","Green"},{"black","Black*"}}) do
-        local key,text=entry[1],entry[2]
-        colors[key]=Button(text,16+(i-1)*87,-251,82,function() DB.color=key; ApplySettings() end)
+    local colors,selectedMarks={},{}
+    for i,entry in ipairs(PRESETS) do
+        local key,name=entry[1],entry[2]
+        local b=Button("",16+(i-1)*35,-251,32,function() DB.color=key; ApplySettings() end)
+        colors[key]=b
+        local swatch=b:CreateTexture(nil,"ARTWORK")
+        swatch:SetPoint("TOPLEFT",b,"TOPLEFT",5,-4)
+        swatch:SetPoint("BOTTOMRIGHT",b,"BOTTOMRIGHT",-5,4)
+        local c=COLORS[key]
+        swatch:SetColorTexture(c[1],c[2],c[3],1)
+        local mark=b:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+        mark:SetPoint("CENTER",b,"CENTER",0,0); mark:SetText("*")
+        local contrast=(key=="white" or key=="amber" or key=="cyan" or key=="green" or key=="orange") and 0 or 1
+        mark:SetTextColor(contrast,contrast,contrast)
+        selectedMarks[key]=mark
+        b:SetScript("OnEnter",function(self)
+            GameTooltip:SetOwner(self,"ANCHOR_TOP")
+            GameTooltip:SetText(name.." "..ColorHex(c))
+            if key=="black" then GameTooltip:AddLine("Black preset: white for linear styles.",1,1,1) end
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave",function() GameTooltip:Hide() end)
     end
-    Label("*Black applies to radial; linear indicators use white.",16,-278,"GameFontHighlightSmall")
+    local custom=Button("Custom...",304,-251,140,function()
+        if not OpenCustomColorPicker(ApplySettings) then Say("Color picker unavailable. Use /resweep color #RRGGBB.") end
+    end)
+    local customSwatch=custom:CreateTexture(nil,"OVERLAY")
+    customSwatch:SetSize(13,13); customSwatch:SetPoint("LEFT",custom,"LEFT",10,0)
+    local colorLabel=Label("",16,-278,"GameFontHighlightSmall")
     local function Slider(name,x,y,low,high,step,callback)
         local label=Label(name,x,y)
         local sliderName="RogueEnergySweep"..name.."Slider"
@@ -836,7 +914,14 @@ local function CreateOptions()
         enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint)
         for key,b in pairs(modes) do if key==DB.mode then b:Disable() else b:Enable() end end
         for key,b in pairs(progressButtons) do if key==DB.progress then b:Disable() else b:Enable() end end
-        for key,b in pairs(colors) do if key==DB.color then b:Disable() else b:Enable() end end
+        for key,b in pairs(colors) do
+            if key==DB.color then selectedMarks[key]:Show() else selectedMarks[key]:Hide() end
+        end
+        local c=ResolveColor()
+        customSwatch:SetColorTexture(c[1],c[2],c[3],1)
+        local name="Custom"
+        for _,entry in ipairs(PRESETS) do if entry[1]==DB.color then name=entry[2] end end
+        colorLabel:SetText(name.."  "..ColorHex(c)..(DB.color=="black" and "  (linear styles use white)" or ""))
         opacity:SetValue(DB.opacity*100); thickness:SetValue(DB.thickness); previewSlider:SetValue(previewEnergy); previewStartSlider:SetValue(previewStart)
         opacityLabel:SetText(string.format("Opacity: %d%%",math.floor(DB.opacity*100+0.5)))
         thicknessLabel:SetText(string.format("Thickness: %d px",DB.thickness))
@@ -871,7 +956,7 @@ local function OpenOptions()
     else Say("Settings unavailable; use /resweep help.") end
 end
 local function Help()
-    Say("/resweep options | status | demo | on | off | rescan | combat | opacity 90 | color amber/white/cyan/green/black | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
@@ -892,7 +977,10 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     elseif cmd == "rescan" then RequestScan(); Say(InCombatLockdown() and "Rescan deferred until combat ends." or "Rescan requested."); return
     elseif cmd == "combat" then DB.combatOnly = not DB.combatOnly; Say("Combat only: " .. tostring(DB.combatOnly))
     elseif cmd == "opacity" and tonumber(arg) then DB.opacity = math.max(0.15, math.min(1.00, tonumber(arg)/100))
-    elseif cmd == "color" and COLORS[arg] then DB.color = arg
+    elseif cmd == "color" then
+        if COLORS[arg] then DB.color=arg
+        elseif arg=="gold" then DB.color="amber"
+        elseif not SetColorHex(arg) then Say("Choose amber, white, cyan, green, red, purple, orange, black or #RRGGBB."); return end
     elseif cmd == "mode" and MODES[arg] then DB.mode = arg == "auto" and "radial" or arg
     elseif cmd == "progress" and (arg == "energy" or arg == "countdown") then SetProgress(arg)
     elseif cmd == "thickness" and tonumber(arg) then DB.thickness = math.floor(math.max(2,math.min(8,tonumber(arg)))+0.5)
