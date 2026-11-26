@@ -18,7 +18,7 @@ local function eval(curve,x)
 end
 local function near(a,b) assert(math.abs(a-b)<1e-6,tostring(a).." != "..tostring(b)) end
 env.UnitPowerPercent=function(unit,power,raw,curve) assert(unit=="player" and power==3 and raw==false); return eval(curve,.15) end
-local code=section("local function IsSecret","local MODES")..section("local function MakeCurve","local function GetButtonSlot")..section("local function GetSpellFromSlot","local function Clear(")..section("local function ErrorNote","local function Paint")..section("local function Evaluate","-- A native radial StatusBar")..section("local function Countdown","local function ResetProgress")
+local code=section("local function IsSecret","local MODES")..section("local function MakeCurve","local function GetButtonSlot")..section("local function GetSpellFromSlot","local function Clear(")..section("local function ErrorNote","local function Paint")..section("local function Evaluate","-- Native widgets consume protected ranges")..section("local function Countdown","local function ResetProgress")
 local make,spell,cost,evaluate,countdown=assert(load(code.."\nreturn MakeCurve,GetSpellFromSlot,GetEnergyCost,Evaluate,Countdown","api mocks","t",env))()
 local fill=make(45,"fill"); local deficit=make(45,"deficit"); local visible=make(45,"visibility")
 near(eval(fill,.15),1/3); near(eval(deficit,.15),2/3); near(eval(fill,.45),1); near(eval(visible,.44),1); near(eval(visible,.45),0); near(eval(visible,.8),0)
@@ -50,3 +50,33 @@ assert(not radialInit:find("SetRadialProgressBarStartOffset",1,true))
 assert(not radialInit:find("SetRadialProgressBarEndOffset",1,true))
 assert(radialInit:find("pcall(radial.SetRadialProgressBarPercent, radial, 0)",1,true))
 print("PASS: default radial geometry regression guard (not a visual rendering test)")
+
+-- Test actual direct rendering helpers using opaque mock values and widgets.
+local directCode=section("local function IsSecret","local MODES")..section("local function Clear(","local function ClearAll")..section("local function ErrorNote","local function Countdown")
+local function widget()
+    local w={}
+    function w:Hide() self.shown=false end
+    function w:Show() self.shown=true end
+    function w:SetAlpha(v) self.alpha=v end
+    function w:SetMinMaxValues(lo,hi) if self.reject and rawequal(lo,secret) then error("rejected protected range") end; self.lo=lo; self.hi=hi end
+    function w:SetValue(v) self.value=v end
+    function w:SetRadialProgressBarPercent(v) self.value=v end
+    return w
+end
+local env2=setmetatable({issecretvalue=env.issecretvalue,DB={mode="bar",thickness=4}}, {__index=_G})
+local paint,paintDirect=assert(load(directCode.."\nreturn Paint,PaintDirect","direct mocks","t",env2))()
+local rec={frame=widget(),radial=widget(),bar=widget(),rising=widget(),riseTint=widget(),line=widget(),track=widget(),edges={widget(),widget(),widget(),widget()},native=true}
+local snapshot={start=secret,startDeficit=secret}
+assert(paintDirect(rec,secret,secret,secret,snapshot))
+assert(rawequal(rec.bar.lo,secret) and rawequal(rec.bar.value,secret) and rec.bar.hi==1 and rec.progressState=="native countdown")
+assert(paint(rec,.5,.5,1)); assert(rec.bar.lo==0 and rec.bar.hi==1 and rec.bar.value==.5)
+env2.DB.mode="rising"; assert(paintDirect(rec,secret,secret,secret,snapshot))
+assert(rawequal(rec.rising.lo,secret) and rawequal(rec.riseTint.lo,secret) and rec.line.shown)
+env2.DB.mode="radial"; rec.countdownRadial=widget()
+assert(paintDirect(rec,secret,secret,secret,snapshot))
+assert(rec.countdownRadial.lo==0 and rawequal(rec.countdownRadial.hi,secret) and rec.countdownRadial.shown)
+assert(paint(rec,.5,.5,1) and not rec.countdownRadial.shown and rec.radial.shown)
+env2.DB.mode="bar"; rec.bar.reject=true
+assert(not paintDirect(rec,secret,secret,secret,snapshot)); assert(rec.renderError:find("rejected protected range",1,true))
+assert(paint(rec,.4,.6,1) and rec.bar.lo==0 and rec.bar.value==.4)
+print("PASS: direct native ranges, public range restoration, radial selection and rejected range fallback")

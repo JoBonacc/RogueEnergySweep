@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.6.1 (WoW Forever)
+-- Rogue Energy Sweep 0.7.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -13,6 +13,7 @@ local progressGeneration = 0
 local demo = false
 local demoGeneration = 0
 local lastSource, lastError = "not evaluated", "none"
+local refreshLiveStatus
 local function Say(message) print("|cffffcc66Energy Sweep:|r " .. message) end
 local function IsSecret(value)
     return type(issecretvalue) == "function" and issecretvalue(value)
@@ -175,7 +176,9 @@ local function Clear(record)
     record.riseTint:Hide()
     for _, edge in ipairs(record.edges) do edge:Hide() end
     record.track:Hide()
-    record.mode = nil
+    if record.countdownRadial then record.countdownRadial:Hide() end
+    if record.countdownClips then for _,clip in ipairs(record.countdownClips) do clip:Hide() end end
+    record.mode = nil; record.progressState = nil
 end
 
 local function ClearAll()
@@ -190,6 +193,8 @@ local function Style(record)
     local lr,lg,lb = r,g,b
     if DB.color == "black" then lr,lg,lb = 1,1,1 end
     record.radial:SetVertexColor(r,g,b,DB.opacity * 0.65)
+    if record.countdownRadial then record.countdownRadial:SetStatusBarColor(r,g,b,DB.opacity * 0.65) end
+    if record.countdownEdges then for _,edge in ipairs(record.countdownEdges) do edge:SetStatusBarColor(lr,lg,lb,DB.opacity) end end
     record.bar:SetStatusBarColor(lr,lg,lb,DB.opacity)
     record.bar:SetHeight(DB.thickness)
     record.track:SetHeight(DB.thickness)
@@ -393,7 +398,12 @@ local function Paint(record, fill, deficit, visibility)
     local mode = DB.mode == "auto" and "radial" or DB.mode
     -- Only native widgets consume secret values; never inspect their results.
     local function Apply(selected)
-        if record.mode ~= selected then Clear(record) end
+        if record.mode ~= selected or record.directRange or record.directActive then Clear(record) end
+        record.directActive = false
+        if record.directRange then
+            record.bar:SetMinMaxValues(0,1); record.rising:SetMinMaxValues(0,1); record.riseTint:SetMinMaxValues(0,1)
+            record.directRange = false
+        end
         record.frame:SetAlpha(visibility)
         if selected == "radial" then
             if not record.native then error("radial API unavailable") end
@@ -410,11 +420,12 @@ local function Paint(record, fill, deficit, visibility)
         record.mode = selected
     end
     local ok,err = pcall(Apply,mode)
-    if ok then return end
-    ErrorNote(err); Clear(record)
+    if ok then return true end
+    ErrorNote(err); record.renderError=lastError; Clear(record)
     ok,err = pcall(Apply,"bar")
-    if ok then return end
-    ErrorNote(err); Clear(record)
+    if ok then return false end
+    ErrorNote(err); record.renderError=lastError; Clear(record)
+    return false
 end
 
 local function Evaluate(curve)
@@ -426,40 +437,92 @@ local function Evaluate(curve)
     return nil,false
 end
 
--- A native radial StatusBar normalizes a value against its range. Its texture
--- returns a (still secret when appropriate) normalized display value. Never
--- inspect protected values or use them to decide whether to cast anything.
-local normalizers, normalizerUnavailable
-local function NormalizeNative(fill, deficit, startFill, startDeficit)
-    if normalizerUnavailable then return nil, nil, false end
-    local ok, f, d = pcall(function()
-        if not normalizers then
-            local parent = CreateFrame("Frame", nil, UIParent)
-            parent:SetSize(8,8); parent:SetPoint("CENTER"); parent:SetAlpha(0)
-            local function NewNormalizer()
-                local bar = NewBar(parent, 0, 1)
-                bar:SetAllPoints(parent)
-                local radialMode = Enum and Enum.StatusBarRenderMode and Enum.StatusBarRenderMode.Radial or 1
-                bar:SetRenderMode(radialMode)
-                local texture = bar:GetStatusBarTexture()
-                -- Verify that the public path produces a current normalized result.
-                bar:SetMinMaxValues(0.25,0.75); bar:SetValue(0.375)
-                local check = SafeNumber(texture:GetRadialProgressBarPercent())
-                if not check or math.abs(check-0.25)>0.01 then error("native normalization self-test failed") end
-                return {bar=bar, texture=texture}
-            end
-            normalizers={NewNormalizer(), NewNormalizer()}
+-- Native widgets consume protected ranges and values directly. No texture
+-- readback, secret arithmetic, comparison, or timing estimate is needed.
+local function SetDirectRange(bar, low, high, value)
+    bar:SetMinMaxValues(low,high)
+    bar:SetValue(value)
+end
+
+local function PrepareCountdownRadial(record)
+    if record.countdownRadial then return record.countdownRadial end
+    local bar=NewBar(record.frame,0,1)
+    bar:Hide()
+    bar:SetAllPoints(record.frame)
+    bar:SetRenderMode(Enum and Enum.StatusBarRenderMode and Enum.StatusBarRenderMode.Radial or 1)
+    local texture=bar:GetStatusBarTexture()
+    -- Match the direction and default geometry of the working radial texture.
+    if texture.SetRadialProgressBarReverse then texture:SetRadialProgressBarReverse(true) end
+    record.countdownRadial=bar
+    Style(record)
+    return bar
+end
+
+-- Each clipped bar represents the same full countdown, but only one quarter
+-- is visible. Offsets are calculated from public layout dimensions, never
+-- from energy or a protected range. This preserves four sequential edges.
+local function PrepareCountdownEdges(record)
+    local w,h=SafeNumber(record.frame:GetWidth()),SafeNumber(record.frame:GetHeight())
+    if not w or not h or w<=0 or h<=0 then error("countdown perimeter layout unavailable") end
+    if not record.countdownClips then record.countdownClips={}; record.countdownEdges={} end
+    for i=1,4 do
+        if not record.countdownClips[i] then
+            local clip=CreateFrame("Frame",nil,record.frame)
+            clip:Hide(); clip:EnableMouse(false)
+            clip:SetAllPoints(record.edges[i])
+            clip:SetClipsChildren(true)
+            local edge=NewBar(clip,0,1,i%2==1 and "HORIZONTAL" or "VERTICAL",i==2 or i==3)
+            edge:EnableMouse(false)
+            record.countdownClips[i]=clip; record.countdownEdges[i]=edge
         end
-        local a,b=normalizers[1],normalizers[2]
-        a.bar:SetMinMaxValues(startFill,1); a.bar:SetValue(fill)
-        b.bar:SetMinMaxValues(0,startDeficit); b.bar:SetValue(deficit)
-        return a.texture:GetRadialProgressBarPercent(), b.texture:GetRadialProgressBarPercent()
-    end)
-    if not ok then ErrorNote(f); normalizerUnavailable=true; return nil,nil,false end
-    if (not IsSecret(f) and not SafeNumber(f)) or (not IsSecret(d) and not SafeNumber(d)) then
-        lastError="native normalization did not return numbers"; normalizerUnavailable=true; return nil,nil,false
     end
-    return f,d,true
+    local key=tostring(w)..":"..tostring(h)..":"..tostring(DB.thickness)
+    if record.countdownLayout~=key then
+        for i,edge in ipairs(record.countdownEdges) do
+            local clip=record.countdownClips[i]
+            edge:ClearAllPoints()
+            if i==1 then edge:SetSize(4*w,DB.thickness); edge:SetPoint("LEFT",clip,"LEFT",0,0)
+            elseif i==2 then edge:SetSize(DB.thickness,4*h); edge:SetPoint("TOP",clip,"TOP",0,h)
+            elseif i==3 then edge:SetSize(4*w,DB.thickness); edge:SetPoint("RIGHT",clip,"RIGHT",2*w,0)
+            else edge:SetSize(DB.thickness,4*h); edge:SetPoint("BOTTOM",clip,"BOTTOM",0,-3*h) end
+        end
+        record.countdownLayout=key
+        Style(record)
+    end
+end
+
+local function PaintDirect(record,fill,deficit,visibility,group)
+    local mode=DB.mode=="auto" and "radial" or DB.mode
+    local ok,err=pcall(function()
+        if record.mode~=mode or not record.directActive then Clear(record) end
+        record.directActive=true
+        record.frame:SetAlpha(visibility)
+        if mode=="radial" then
+            local bar=PrepareCountdownRadial(record)
+            SetDirectRange(bar,0,group.startDeficit,deficit)
+            bar:Show()
+        elseif mode=="bar" then
+            record.directRange=true
+            SetDirectRange(record.bar,group.start,1,fill)
+            record.track:Show(); record.bar:Show()
+        elseif mode=="rising" then
+            record.directRange=true
+            SetDirectRange(record.riseTint,group.start,1,fill)
+            SetDirectRange(record.rising,group.start,1,fill)
+            record.riseTint:Show(); record.rising:Show(); if record.line then record.line:Show() end
+        elseif mode=="perimeter" then
+            PrepareCountdownEdges(record)
+            for i,edge in ipairs(record.countdownEdges) do
+                SetDirectRange(edge,group.start,1,fill)
+                edge:Show(); record.countdownClips[i]:Show()
+            end
+        else error("unknown countdown renderer") end
+        record.mode=mode; record.progressState="native countdown"
+    end)
+    if ok then return true end
+    ErrorNote(err); record.renderError=lastError
+    Clear(record)
+    return false
 end
 
 local function Countdown(group, cost, fill, deficit)
@@ -485,8 +548,7 @@ local function Countdown(group, cost, fill, deficit)
         local p=math.max(0,math.min(1,(public-group.start)/(1-group.start)))
         return p,1-p,true,"countdown (public)"
     elseif group.startValid then
-        local f,d,ok=NormalizeNative(fill,deficit,group.start,group.startDeficit)
-        if ok then return f,d,true,"countdown (native snapshot)" end
+        return fill,deficit,true,"countdown (native direct range)",true
     end
     return fill,deficit,false,"energy fallback (countdown unavailable)"
 end
@@ -496,12 +558,12 @@ local function ResetProgress()
     for _,group in pairs(groups) do group.public=nil; group.lastFill=nil; group.start=nil; group.startValid=nil end
 end
 local function SetProgress(mode)
-    if DB.progress ~= mode then DB.progress=mode; ResetProgress() end
+    if DB.progress ~= mode then DB.progress=mode; ResetProgress(); for _,record in pairs(overlays) do record.failedGroup=nil; record.failedError=nil end end
 end
 
 local function Update()
     updatePending = false
-    if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); if DB and DB.progress=="countdown" then ResetProgress() end; return end
+    if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); if DB and DB.progress=="countdown" then ResetProgress() end; if refreshLiveStatus then refreshLiveStatus() end; return end
     local publicEnergy,triedPublic = nil,false
     lastSource = "no tracked energy abilities"
     for cost,group in pairs(groups) do
@@ -527,14 +589,39 @@ local function Update()
                 end
             end
         end
+        local directRange, countdownOK, source
         if valid and not demo and DB.progress == "countdown" then
-            local normalizedFill,normalizedDeficit,_,source=Countdown(group,cost,fill,deficit)
-            fill,deficit,lastSource=normalizedFill,normalizedDeficit,source
+            fill,deficit,countdownOK,source,directRange=Countdown(group,cost,fill,deficit)
+            lastSource=source
         end
         for _,record in ipairs(group.records) do
-            if valid then Paint(record,fill,deficit,visibility) else Clear(record); lastSource="energy unavailable" end
+            record.renderError=nil
+            if valid then
+                if directRange then
+                    -- Retry on a new snapshot, style change, or reload, not every power event.
+                    local failed=record.failedGroup==group and record.failedGeneration==group.generation and record.failedMode==DB.mode
+                    if not failed and PaintDirect(record,fill,deficit,visibility,group) then
+                        record.failedGroup=nil; record.failedError=nil
+                    else
+                        if not failed then
+                            record.failedGroup=group; record.failedGeneration=group.generation; record.failedMode=DB.mode
+                            record.failedError=record.renderError
+                        end
+                        record.renderError=record.failedError
+                        Paint(record,fill,deficit,visibility)
+                        record.progressState="energy fallback"
+                    end
+                else
+                    local rendered=Paint(record,fill,deficit,visibility)
+                    if demo then record.progressState="demo"
+                    elseif DB.progress=="countdown" then record.progressState=countdownOK and "public countdown" or "energy fallback"
+                    else record.progressState="energy" end
+                    if not rendered and not record.mode then record.progressState="unavailable" end
+                end
+            else Clear(record); record.progressState="unavailable"; lastSource="energy unavailable" end
         end
     end
+    if refreshLiveStatus then refreshLiveStatus() end
 end
 
 local function RequestUpdate()
@@ -617,6 +704,18 @@ local function CheckBuild(notify)
     Say("New client build " .. build .. " (reviewed baseline " .. KNOWN_BUILD .. "). Addon remains enabled; run /resweep status and test overlays.")
 end
 
+local function ProgressSummary()
+    local states={}
+    for _,record in ipairs(records) do
+        if record.cost and record.cost>0 and record.progressState then states[record.progressState]=(states[record.progressState] or 0)+1 end
+    end
+    local parts={}
+    for _,key in ipairs({"native countdown","public countdown","energy fallback","energy","demo","unavailable"}) do
+        if states[key] then parts[#parts+1]=states[key]..": "..states[key] end
+    end
+    return #parts>0 and table.concat(parts," | ") or "no active indicators",states
+end
+
 local function Status()
     local count, radial, bar, native, rising, perimeter = 0,0,0,0,0,0
     for _, record in ipairs(records) do
@@ -629,10 +728,14 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.6.1 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.7.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
-    Say("last API error: " .. lastError)
+    Say("actual progress: "..ProgressSummary())
+    for _,record in ipairs(records) do
+        if record.cost and record.renderError then Say("spell "..tostring(record.spellID).." / "..DB.mode..": "..record.renderError) end
+    end
+    Say("last API error (historical): " .. lastError)
     CheckCompatibility(false)
     CheckBuild(false)
 end
@@ -677,7 +780,18 @@ local function CreateOptions()
     local progressButtons={}
     progressButtons.energy=Button("Energy-based",16,-181,132,function() SetProgress("energy"); ApplySettings() end)
     progressButtons.countdown=Button("Countdown",156,-181,132,function() SetProgress("countdown"); ApplySettings() end)
-    Label("Countdown starts after spending energy (experimental).",16,-208,"GameFontHighlightSmall")
+    local liveStatus=Label("Countdown starts after spending energy (experimental).",16,-208,"GameFontHighlightSmall")
+    local previousStatus
+    refreshLiveStatus=function()
+        if DB.progress~="countdown" then
+            if previousStatus~="energy" then liveStatus:SetText("Energy-based: progress toward ability cost."); previousStatus="energy" end
+            return
+        end
+        local summary,states=ProgressSummary()
+        local message="Live: "..summary
+        if states["energy fallback"] or states.unavailable then message="|cffffaa44"..message.."|r" end
+        if previousStatus~=message then liveStatus:SetText(message); previousStatus=message end
+    end
     Label("Indicator color",16,-232)
     local colors={}
     for i,entry in ipairs({{"amber","Gold"},{"white","White"},{"cyan","Cyan"},{"green","Green"},{"black","Black*"}}) do
@@ -717,6 +831,7 @@ local function CreateOptions()
     Button("Test on bars",16,-535,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
     Button("Reset defaults",145,-535,120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
     refreshPanel=function()
+        refreshLiveStatus()
         syncing=true
         enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint)
         for key,b in pairs(modes) do if key==DB.mode then b:Disable() else b:Enable() end end

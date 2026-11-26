@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.0
+- Replace failed protected countdown normalization readback with direct native status-bar ranges for rising, bottom, radial and clipped perimeter styles.
+- Preserve energy-based renderers and reset linear ranges when switching back to energy progress.
+- Show actual progress and per-button fallback diagnostics in options and status; retry rejected native ranges on a new snapshot or style change.
+- Add mocked direct-range, fallback and state restoration regression tests. Live client behavior is unverified.
+
 ## v0.6.1
 - Restore the original radial texture geometry by removing explicit start/end offsets; targeted candidate fix for invisible radial overlays on build 71139.
 - Add a regression guard for the default radial geometry. Other rendering and countdown normalization are unchanged.

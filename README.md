@@ -19,7 +19,7 @@ Customizable energy readiness indicators directly on your Rogue action buttons i
 | Perimeter | Progress follows the icon's edge |
 | Radial sweep | A shaded sector clears as energy regenerates |
 
-Choose **energy-based** progress (fraction of the spell cost accumulated) or **countdown-based** progress (starts at zero after a detected spend). For example, a 45-energy ability with 15 energy left starts at 33% in energy mode or 0% in countdown mode. Both follow actual energy, not a fixed timer. Countdown is experimental and may fall back to energy mode.
+Choose **energy-based** progress (fraction of the spell cost accumulated) or **countdown-based** progress (starts at zero after a detected spend). For example, a 45-energy ability with 15 energy left starts at 33% in energy mode or 0% in countdown mode. Both follow actual energy, not a fixed timer. Countdown is experimental and may fall back to energy mode. The options panel and `/resweep status` distinguish actual native/public countdown from energy fallback.
 
 Type `/resweep` to change style, progress mode, color, opacity, thickness, tint and combat-only behavior. The panel includes a simulated preview and a test on your bars. Existing spell cooldowns and the global cooldown are not modified.
 
