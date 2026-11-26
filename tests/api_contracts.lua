@@ -466,7 +466,7 @@ local frames={}
 local function trackerWidget(parent,kind,name)
     local w={parent=parent,kind=kind,name=name,shown=false,alpha=1,points={},children={},scripts={},scale=1}
     if parent and parent.children then parent.children[#parent.children+1]=w end
-    for _,method in ipairs({"SetMovable","SetClampedToScreen","RegisterForDrag","SetFrameStrata","SetFrameLevel","SetDrawLayer","SetBlendMode","SetVertexColor","SetColorTexture","SetStatusBarColor","SetStatusBarTexture","SetRenderMode","SetRadialProgressBarReverse","SetRadialProgressBarPercent","SetMinMaxValues","SetValue","SetText","SetWidth","SetHeight","SetTexture","SetAllPoints","SetPoint","SetSize","ClearAllPoints","EnableMouse","SetScale","StartMoving","StopMovingOrSizing"}) do
+    for _,method in ipairs({"SetMovable","SetClampedToScreen","RegisterForDrag","SetFrameStrata","SetFrameLevel","SetDrawLayer","SetBlendMode","SetVertexColor","SetTextColor","SetColorTexture","SetStatusBarColor","SetStatusBarTexture","SetRenderMode","SetRadialProgressBarReverse","SetRadialProgressBarPercent","SetMinMaxValues","SetValue","SetText","SetWidth","SetHeight","SetTexture","SetAllPoints","SetPoint","SetSize","ClearAllPoints","EnableMouse","SetScale","StartMoving","StopMovingOrSizing"}) do
         w[method]=function(self,...) self[method.."Args"]={...} end
     end
     function w:SetScript(k,v) self.scripts[k]=v end
@@ -595,3 +595,55 @@ chains.Sync({cb1,cb2},100); chains.Begin(); chains.Update(cb1,true)
 assert(not chainWidgets[1].shown)
 assert(chains.Status():find("last error none",1,true),chains.Status())
 print("PASS: native Ability Chains widgets, protected samples, three repeat slots, follow-up, and stale rule cleanup")
+
+-- Arsenal shares the real Chains settings and curve builder.
+trackerNS.Chains=chains
+trackerDB.chains={enabled=false,regen=10,fraction=true,maxPips=4,
+    colors={[3]=2},rules={}}
+chains.Init(trackerDB)
+local arsenalEntry={spellID=3,name="Sinister Strike",category="builder",cost=45}
+local spec=chains.ArsenalSpec(arsenalEntry,100,false)
+assert(spec.colorIndex==2 and #spec.defs==3 and spec.defs[1].hi==45 and spec.defs[2].hi==80 and spec.defs[3].hi==115)
+near(eval(chains.BuildPipCurve(80,115,true,100),1),20/35)
+local discounted=chains.ArsenalSpec({spellID=3,name="Sinister Strike",category="builder",cost=35},100,false)
+assert(#discounted.defs==4 and discounted.defs[3].hi==85)
+local utility={spellID=4,name="Gouge",category="other",cost=45}
+assert(#chains.ArsenalSpec(utility,100,false).defs==1)
+assert(#chains.ArsenalSpec(utility,100,true).defs==3)
+trackerDB.chains.rules[4]={repeatPips=true,follow={}}
+assert(#chains.ArsenalSpec(utility,100,false).defs==3)
+trackerDB.chains.rules[4]=nil
+local allArsenal={{spellID=1,cost=35,finisher=true,category="finisher"},{spellID=3,cost=45,category="builder"},{spellID=4,cost=45,category="other"}}
+trackerDB.tracker.auto=true; trackerDB.tracker.arsenalAllRepeats=false
+trackerEnv.UnitPower=function() return secret end
+for _,style in ipairs({"circle","diamond","charge","count"}) do
+    tracker.Command(style)
+    for _,vertical in ipairs({false,true}) do
+        trackerDB.tracker.vertical=vertical
+        assert(tracker.Sync(allArsenal,100))
+        assert(tracker.Begin(false))
+        tracker.Finish(false)
+        local result=tracker.Status()
+        assert(result:find("3 abilities",1,true) and result:find("last error none",1,true),result)
+        assert(result:find(style=="count" and "native pip fallback" or "native arsenal pips",1,true),result)
+    end
+end
+trackerEnv.UnitPower=function() return 100 end
+tracker.Finish(false)
+assert(tracker.Status():find("public arsenal counts",1,true))
+local foundTwo=false
+local function Look(w)
+    if w.kind=="FontString" and w.shown and w.SetTextArgs and w.SetTextArgs[1]=="2" then foundTwo=true end
+    for _,child in ipairs(w.children or {}) do Look(child) end
+end
+Look(ui); assert(foundTwo)
+trackerDB.chains.colors[3]=4
+assert(tracker.Sync(allArsenal,100))
+trackerDB.chains.fraction=false
+assert(tracker.Sync(allArsenal,100))
+assert(#chains.ArsenalSpec(arsenalEntry,100,false).defs==2)
+trackerDB.tracker.auto=false; trackerDB.tracker.selected={[3]=true}
+assert(tracker.Sync(allArsenal,100)); assert(tracker.Begin(false)); tracker.Finish(false)
+assert(tracker.Status():find("1 abilities",1,true))
+tracker.Command("off"); tracker.Sync(allArsenal,100); assert(not tracker.Begin(false))
+print("PASS: Arsenal shared thresholds/palette, utility defaults, all styles/orientations, protected fallback, public counts, selection and disabled lifecycle")

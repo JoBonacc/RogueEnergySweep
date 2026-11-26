@@ -454,6 +454,8 @@ local function SetupArsenal(entries)
             row.frame:SetPoint("TOPLEFT",arsenalFrame,"TOPLEFT",col*(cellW+cfg.spacing),-line*(cellH+cfg.spacing))
             row.icon:SetPoint("TOP",row.frame,"TOP",0,0)
             local labelY=-(cfg.arsenalIcons and iconSize+5 or 0)
+            row.name:SetWidth(cellW-4)
+            if row.name.SetJustifyH then row.name:SetJustifyH("CENTER") end
             row.name:SetPoint("TOP",row.frame,"TOP",0,labelY)
             row.costLabel:SetPoint("TOP",row.frame,"TOP",0,labelY-(cfg.showNames and 14 or 0))
             row.count:SetPoint("CENTER",row.frame,"BOTTOM",0,pipAreaH/2)
@@ -716,7 +718,8 @@ end
 function T.Finish(demo)
     if cfg.layout=="arsenal" then
         local ok,err=pcall(UpdateArsenal,demo)
-        if not ok then lastError=tostring(err); source="arsenal renderer rejected"; if arsenalFrame then arsenalFrame:Hide() end end
+        if not ok then lastError=tostring(err); source="arsenal renderer rejected"; if arsenalFrame then arsenalFrame:Hide() end
+        elseif arsenalFrame then arsenalFrame:Show() end
         return
     end
     if breakpointLayouts[cfg.layout] and cfg.layout~="arc" then
@@ -747,7 +750,7 @@ function T.Finish(demo)
 end
 function T.Status()
     if not cfg then return "not initialized" end
-    return (cfg.enabled and cfg.layout or "off").." | "..(breakpointLayouts[cfg.layout] and (#breakpointRows.." breakpoints") or ((cfg.layout=="arsenal" and #arsenalRows or #rows).." abilities")).." | action bars "..tostring(cfg.actionBars).." | dial "..source.." | last error "..lastError
+    return (cfg.enabled and cfg.layout or "off").." | "..(breakpointLayouts[cfg.layout] and (#breakpointRows.." breakpoints") or ((cfg.layout=="arsenal" and #arsenalRows or #rows).." abilities")).." | action bars "..tostring(cfg.actionBars).." | renderer "..source.." | last error "..lastError
 end
 function T.Command(arg)
     if arg=="on" then cfg.enabled=true
