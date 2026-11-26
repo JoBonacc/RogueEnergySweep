@@ -40,7 +40,14 @@ jobs:
           fi
   release:
     needs: validate
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    # Only intentional release commits on main may publish; ordinary pushes just validate.
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish release: '))
+    concurrency:
+      group: addon-release
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -52,8 +59,14 @@ jobs:
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
-            version="$REQUESTED_VERSION"
+          if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            version=$(sed -n 's/^## Version: //p' addon/RogueEnergySweep/RogueEnergySweep.toc | tr -d '\r')
+            if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+              test "$version" = "$REQUESTED_VERSION"
+            else
+              subject=$(git log -1 --format=%s)
+              test "$subject" = "Publish release: v$version"
+            fi
             tag="v$version"
             python3 scripts/package.py --version "$version"
             existing=$(git ls-remote --tags origin "refs/tags/$tag")
