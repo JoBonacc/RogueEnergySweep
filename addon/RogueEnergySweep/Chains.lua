@@ -8,6 +8,7 @@ local errorText="none"
 local WHITE="Interface\\Buttons\\WHITE8X8"
 local CIRCLE="Interface\\AddOns\\RogueEnergySweep\\ChainCircle"
 local DIAMOND="Interface\\AddOns\\RogueEnergySweep\\ChainDiamond"
+local WARNING="Interface\\AddOns\\RogueEnergySweep\\ChainWarning"
 local palette={{.75,.53,1},{.76,.51,.29},{1,.29,.26},{1,.78,.22},{.30,.85,.48},{.30,.75,1},{1,.55,.80},{.9,.9,.9}}
 local function number(v,d,lo,hi) if type(v)~="number" or v~=v then v=d end; return math.max(lo,math.min(hi,v)) end
 local function Normalize(c)
@@ -17,6 +18,9 @@ local function Normalize(c)
     c.offset=number(c.offset,0,-12,12); c.regen=number(c.regen,10,0,30)
     c.maxPips=math.floor(number(c.maxPips,4,1,6))
     c.rules=type(c.rules)=="table" and c.rules or {}; c.colors=type(c.colors)=="table" and c.colors or {}
+    c.globalFollow=type(c.globalFollow)=="table" and c.globalFollow or {}
+    c.pulseWarnings=c.pulseWarnings~=false
+    for id,mode in pairs(c.globalFollow) do if type(id)~="number" or (mode~="warning" and mode~="opportunity") then c.globalFollow[id]=nil end end
     local templates={minimal=true,builders=true,pvp=true,finishers=true,custom=true}
     c.template=templates[c.template] and c.template or "minimal"
     return c
@@ -74,11 +78,11 @@ end
 local function Rule(e)
     local r=cfg.rules[e.id]
     if type(r)~="table" then return DefaultRule(e) end
-    return {repeatPips=r.repeatPips==true,follow=type(r.follow)=="table" and r.follow or {}}
+    return {repeatPips=r.repeatPips==true,follow=type(r.follow)=="table" and r.follow or {},conditions=type(r.conditions)=="table" and r.conditions or {}}
 end
 local function EditRule(e)
-    local r=Rule(e); local copy={repeatPips=r.repeatPips,follow={}}
-    for _,id in ipairs(r.follow) do copy.follow[#copy.follow+1]=id end
+    local r=Rule(e); local copy={repeatPips=r.repeatPips,follow={},conditions={}}
+    for _,id in ipairs(r.follow) do copy.follow[#copy.follow+1]=id; if r.conditions then copy.conditions[id]=r.conditions[id] end end
     cfg.rules[e.id]=copy; return copy
 end
 local function BuildPipCurve(lo,hi,partial,maximum)
@@ -99,6 +103,33 @@ local function BuildPipCurve(lo,hi,partial,maximum)
     return ok and c or nil
 end
 C.BuildPipCurve=BuildPipCurve
+-- Warning window: the source is affordable, but the reserved follow-up
+-- is not affordable after the assumed intervening regeneration. Upper
+-- threshold may exceed the energy cap; in that case the warning persists.
+local function BuildWarningCurve(low,high,maximum)
+    local ok,c=pcall(function()
+        local curve=C_CurveUtil.CreateCurve()
+        if curve.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then curve:SetType(Enum.LuaCurveType.Linear) end
+        local points={0,maximum}
+        for _,e in ipairs({low-.5,low,high-.5,high}) do if e>0 and e<maximum then points[#points+1]=e end end
+        table.sort(points)
+        local previous
+        for _,e in ipairs(points) do
+            if previous~=e then
+                local value=high>low and math.min(math.max(0,math.min(1,(e-low+.5)/.5)),math.max(0,math.min(1,(high-e)/.5))) or 0
+                curve:AddPoint(e/maximum,value); previous=e
+            end
+        end
+        return curve
+    end)
+    return ok and c or nil
+end
+C.BuildWarningCurve=BuildWarningCurve
+local function WarningCurve(low,high)
+    local key="warning:"..low..":"..high
+    if curves[key]==nil then curves[key]=BuildWarningCurve(low,high,maxEnergy) or false end
+    return curves[key] or nil,key
+end
 local function Curve(lo,hi,partial)
     local key=lo..":"..hi..":"..tostring(partial)
     if curves[key]==nil then curves[key]=BuildPipCurve(lo,hi,partial,maxEnergy) or false end
@@ -109,14 +140,31 @@ local function NewPip(parent)
     local bg=f:CreateTexture(nil,"BACKGROUND"); bg:SetAllPoints(f)
     local bar=CreateFrame("StatusBar",nil,f); bar:EnableMouse(false); bar:SetAllPoints(f)
     bar:SetOrientation("VERTICAL"); bar:SetMinMaxValues(0,1); bar:SetValue(0)
-    return {frame=f,bg=bg,bar=bar}
+    local pulse
+    if bar.CreateAnimationGroup then
+        local ok,group=pcall(function()
+            local a=bar:CreateAnimationGroup(); a:SetLooping("BOUNCE")
+            local fade=a:CreateAnimation("Alpha"); fade:SetFromAlpha(1); fade:SetToAlpha(.38); fade:SetDuration(.4)
+            return a
+        end)
+        if ok then pulse=group end
+    end
+    return {frame=f,bg=bg,bar=bar,pulse=pulse}
+end
+local function StopPulse(p)
+    if p.pulse and p.pulsing then p.pulse:Stop(); p.pulsing=false end
+    if p.bar.SetAlpha then p.bar:SetAlpha(1) end
+end
+local function HideTracked(r)
+    r.frame:Hide()
+    for _,p in ipairs(r.pips) do StopPulse(p) end
 end
 local function Clear(record)
     local r=tracked[record]
-    if r then r.frame:Hide() end
+    if r then HideTracked(r) end
 end
 C.Clear=Clear
-function C.Hide() for _,r in pairs(tracked) do r.frame:Hide() end end
+function C.Hide() for _,r in pairs(tracked) do HideTracked(r) end end
 local function RepeatDefinitions(id,cost,maximum,limit,regen,fraction)
     local defs={}; local previous=0
     for n=1,limit do
@@ -142,21 +190,30 @@ function C.ArsenalSpec(entry,maximum,allRepeats)
     return {color=color,colorIndex=index,limit=limit,regen=cfg.regen,fraction=cfg.fraction,hideInactive=cfg.hideInactive,
         defs=RepeatDefinitions(id,entry.cost,maximum,limit,cfg.regen,cfg.fraction)}
 end
+local function FollowDefinitions(entry,rule)
+    local defs,seen={},{}
+    local function Add(id,condition)
+        local e=catalog[id]
+        if #defs>=3 or not e or not e.current or id==entry.id or seen[id] or api.excluded({spellID=id,category=e.category}) then return end
+        local threshold=FollowThreshold(entry.cost,e.cost,cfg.regen)
+        local warning=condition=="warning"
+        if (warning and threshold>entry.cost and entry.cost<=maxEnergy) or (not warning and threshold<=maxEnergy) then
+            defs[#defs+1]={lo=warning and entry.cost or 0,hi=threshold,partial=false,kind="follow",warning=warning,id=id,n=#defs+1}
+            seen[id]=true
+        end
+    end
+    -- Global warnings first, then global opportunities, then local rules.
+    -- A global relationship overrides a local one for the same target.
+    for _,condition in ipairs({"warning","opportunity"}) do
+        for _,e in ipairs(ordered) do if cfg.globalFollow[e.id]==condition then Add(e.id,condition) end end
+    end
+    for _,id in ipairs(rule.follow) do if not cfg.globalFollow[id] then Add(id,rule.conditions and rule.conditions[id] or "opportunity") end end
+    return defs
+end
 local function Setup(record,entry)
     local rule=Rule(entry)
     local defs=rule.repeatPips and RepeatDefinitions(entry.id,entry.cost,maxEnergy,cfg.maxPips,cfg.regen,cfg.fraction) or {}
-    local count,seen=0,{}
-    for _,id in ipairs(rule.follow) do
-        local e=catalog[id]
-        if e and e.current and id~=entry.id and not seen[id] and not api.excluded({spellID=id,category=e.category}) then
-            local threshold=FollowThreshold(entry.cost,e.cost,cfg.regen)
-            if threshold<=maxEnergy then
-                defs[#defs+1]={lo=0,hi=threshold,partial=false,kind="follow",id=id,n=count+1}
-                count=count+1; seen[id]=true
-            end
-            if count>=3 then break end
-        end
-    end
+    for _,d in ipairs(FollowDefinitions(entry,rule)) do defs[#defs+1]=d end
     if #defs==0 then if tracked[record] then tracked[record].count=0 end; Clear(record); return end
     local r=tracked[record]
     if not r then
@@ -182,7 +239,8 @@ local function Setup(record,entry)
             if InCombatLockdown and InCombatLockdown() then r.count=i-1; break end
             p=NewPip(r.frame); r.pips[i]=p
         end
-        local texture=d.kind=="repeat" and CIRCLE or DIAMOND
+        StopPulse(p)
+        local texture=d.kind=="repeat" and CIRCLE or (d.warning and WARNING or DIAMOND)
         local size,gap=repeatSize,repeatGap
         if d.kind=="follow" then size,gap=followSize,followGap end
         p.frame:SetSize(size,size); p.frame:ClearAllPoints()
@@ -194,20 +252,29 @@ local function Setup(record,entry)
         p.bg:SetTexture(texture); p.bg:SetVertexColor(.15,.13,.11,.85)
         p.bar:SetStatusBarTexture(texture)
         local color=GetColor(d.id); p.bar:SetStatusBarColor(color[1],color[2],color[3],1)
-        p.curve,p.key=Curve(d.lo,d.hi,d.partial and d.hi>d.lo)
-        -- Hide-inactive uses a separate readiness curve, not a Lua test on energy.
-        p.alphaCurve,p.alphaKey=Curve(0,d.partial and math.min(d.hi,d.lo+.5) or d.hi,false)
-        p.bar:SetValue(0); p.frame:SetAlpha(1); p.frame:Show()
+        p.warning=d.warning==true
+        if p.warning then
+            p.curve,p.key=WarningCurve(d.lo,d.hi)
+            p.alphaCurve,p.alphaKey=p.curve,p.key
+            p.bg:Hide(); p.bar:SetValue(1); p.frame:SetAlpha(0)
+        else
+            p.bg:Show(); p.curve,p.key=Curve(d.lo,d.hi,d.partial and d.hi>d.lo)
+            -- Hide-inactive uses a separate readiness curve, not a Lua test on energy.
+            p.alphaCurve,p.alphaKey=Curve(0,d.partial and math.min(d.hi,d.lo+.5) or d.hi,false)
+            p.bar:SetValue(0); p.frame:SetAlpha(1)
+        end
+        p.frame:Show()
     end
     for i=r.count+1,#r.pips do r.pips[i].frame:Hide() end
 end
 function C.Sync(records,max)
     if not cfg or not api then return end
     Remember(records); maxEnergy=max
-    local bits={tostring(cfg.enabled),cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max}
+    local bits={tostring(cfg.enabled),cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),tostring(cfg.pulseWarnings),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max}
     for _,e in ipairs(ordered) do
         local r=Rule(e); bits[#bits+1]=e.id..":"..e.cost..":"..tostring(r.repeatPips)..":"..select(2,GetColor(e.id))
-        for _,id in ipairs(r.follow) do bits[#bits+1]=tostring(id) end
+        bits[#bits+1]="global:"..tostring(cfg.globalFollow[e.id])
+        for _,id in ipairs(r.follow) do bits[#bits+1]=tostring(id)..":"..tostring(r.conditions and r.conditions[id]) end
     end
     for _,r in ipairs(records) do bits[#bits+1]=tostring(r)..":"..tostring(r.spellID)..":"..tostring(api.excluded(r)) end
     local key=table.concat(bits,"|")
@@ -240,13 +307,20 @@ function C.Update(record,eligible)
         for i=1,r.count do
             local p=r.pips[i]; local value,valid=Sample(p.curve,p.key)
             if valid then
+                if p.warning then
+                    -- Native alpha gates the complete warning glyph. The pulse
+                    -- animates only its child and never reads protected alpha.
+                    p.bar:SetValue(1); p.frame:SetAlpha(value)
+                    if cfg.pulseWarnings and p.pulse and not p.pulsing then p.pulse:Play(); p.pulsing=true end
+                else
                 p.bar:SetValue(value)
                 if cfg.hideInactive then
                     local alpha,good=Sample(p.alphaCurve,p.alphaKey)
                     if good then p.frame:SetAlpha(alpha) else p.frame:SetAlpha(0) end
                 else p.frame:SetAlpha(1) end
+                end
                 p.frame:Show()
-            else p.frame:Hide() end
+            else StopPulse(p); p.frame:Hide() end
         end
         r.frame:Show()
     end)
@@ -254,11 +328,15 @@ function C.Update(record,eligible)
 end
 function C.Status()
     if not cfg then return "not initialized" end
-    return (cfg.enabled and "on" or "off").." | "..cfg.template.." | "..cfg.regen.." assumed energy/GCD | "..#ordered.." discovered | last error "..errorText
+    local globals=0; for _ in pairs(cfg.globalFollow) do globals=globals+1 end
+    return (cfg.enabled and "on" or "off").." | "..globals.." global follow-ups | "..cfg.template.." | "..cfg.regen.." assumed energy/GCD | "..#ordered.." discovered | last error "..errorText
 end
 function C.Command(arg)
     if arg=="on" then cfg.enabled=true
     elseif arg=="off" then cfg.enabled=false
+    elseif arg=="kick" then
+        for _,e in ipairs(ordered) do if e.name=="Kick" then cfg.globalFollow[e.id]="warning"; cfg.enabled=true; signature=nil; return true end end
+        return false
     elseif arg=="minimal" or arg=="builders" or arg=="pvp" or arg=="finishers" or arg=="custom" then cfg.template=arg; cfg.rules={}; cfg.enabled=true
     else return false end
     signature=nil; return true
@@ -267,7 +345,7 @@ function C.Open()
     if not cfg then return end
     if not panel then
         panel=CreateFrame("Frame","RogueEnergySweepChainsOptions",UIParent,"BasicFrameTemplateWithInset")
-        panel:SetSize(508,482); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
+        panel:SetSize(528,532); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
         if panel.TitleText then panel.TitleText:SetText("Ability Chains") end
         if UISpecialFrames then table.insert(UISpecialFrames,panel:GetName()) end
         local function Text(t,x,y)
@@ -284,7 +362,7 @@ function C.Open()
         local enabled=Check("Enable pips",16,-33,function(v) cfg.enabled=v end)
         local fraction=Check("Partial repeat pips",178,-33,function(v) cfg.fraction=v end)
         local hide=Check("Hide inactive",355,-33,function(v) cfg.hideInactive=v end)
-        Text("Templates replace custom rules. Circles = repeats; diamonds = alternatives.",16,-64)
+        Text("Templates replace local rules. Circles = repeats; diamonds = follow-ups.",16,-64)
         local templates={}
         for i,e in ipairs({{"minimal","Minimal"},{"builders","Builders"},{"pvp","PvP"},{"finishers","Finishers"},{"custom","Custom"}}) do
             local key=e[1]; templates[key]=Button(e[2],16+(i-1)*96,-83,92,function() C.Command(key); api.apply() end)
@@ -311,47 +389,67 @@ function C.Open()
             local e=ordered[index]; if e then local _,i=GetColor(e.id); cfg.colors[e.id]=i%#palette+1; signature=nil; api.apply() end
         end)
         local swatch=color:CreateTexture(nil,"OVERLAY"); swatch:SetSize(12,12); swatch:SetPoint("LEFT",color,"LEFT",6,0); swatch:SetTexture(WHITE)
-        Text("Choose up to 3 alternative follow-ups (energy only).",16,-302)
+        local global=Button("Global: Off",16,-300,175,function()
+            local e=ordered[index]; if not e then return end
+            local old=cfg.globalFollow[e.id]
+            if old=="opportunity" then cfg.globalFollow[e.id]="warning"
+            elseif old=="warning" then cfg.globalFollow[e.id]=nil
+            else
+                local count=0; for _ in pairs(cfg.globalFollow) do count=count+1 end
+                if count>=3 then return end
+                cfg.globalFollow[e.id]="opportunity"
+            end
+            signature=nil; api.apply()
+        end)
+        local pulseWarnings=Check("Pulse warnings",260,-300,function(v) cfg.pulseWarnings=v end)
+        Text("Global applies this selected ability to all other energy abilities.",16,-331)
+        Text("Local follow-ups: click Off / + / ! to cycle. Max 3 visible, globals first.",16,-349)
         local choices={}
         for i=1,6 do
-            local x=16+((i-1)%2)*242; local y=-320-math.floor((i-1)/2)*25
-            local l=Text("",x+28,y-6)
-            local b=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate"); b:SetSize(24,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y)
-            local row={b=b,l=l}
-            b:SetScript("OnClick",function(self)
-                local e=ordered[index]; if not e or not row.id then return end
+            local x=16+((i-1)%2)*248; local y=-369-math.floor((i-1)/2)*25
+            local l=Text("",x+48,y-6)
+            local row={l=l}
+            local b=Button("Off",x,y,43,function()
+                local e=ordered[index]; if not e or not row.id or cfg.globalFollow[row.id] then return end
                 local r=EditRule(e); local found
                 for j,id in ipairs(r.follow) do if id==row.id then found=j; break end end
-                if self:GetChecked() and not found and #r.follow<3 then r.follow[#r.follow+1]=row.id
-                elseif not self:GetChecked() and found then table.remove(r.follow,found) end
+                if not found and #r.follow<3 then r.follow[#r.follow+1]=row.id; r.conditions[row.id]="opportunity"
+                elseif found and r.conditions[row.id]~="warning" then r.conditions[row.id]="warning"
+                elseif found then table.remove(r.follow,found); r.conditions[row.id]=nil end
                 signature=nil; api.apply()
             end)
+            row.b=b
             choices[i]=row
         end
-        local page=Text("",195,-403)
-        Button("Prev targets",16,-397,105,function() targetPage=targetPage-1; refresh() end)
-        Button("Next targets",382,-397,105,function() targetPage=targetPage+1; refresh() end)
-        Text("Assumes one GCD between presses; ignores refunds, cooldowns and combo changes.",16,-438)
-        Button("Done",398,-452,90,function() panel:Hide() end)
+        local page=Text("",195,-452)
+        Button("Prev targets",16,-446,105,function() targetPage=targetPage-1; refresh() end)
+        Button("Next targets",402,-446,105,function() targetPage=targetPage+1; refresh() end)
+        Text("+ = affordable afterward; ! = cannot afford afterward (energy only).",16,-480)
+        Text("Uses assumed GCD regeneration; ignores target cooldowns and combo changes.",16,-500)
+        Button("Done",418,-502,90,function() panel:Hide() end)
         refresh=function()
             syncing=true
-            enabled:SetChecked(cfg.enabled); fraction:SetChecked(cfg.fraction); hide:SetChecked(cfg.hideInactive)
+            enabled:SetChecked(cfg.enabled); fraction:SetChecked(cfg.fraction); hide:SetChecked(cfg.hideInactive); pulseWarnings:SetChecked(cfg.pulseWarnings)
             for key,b in pairs(templates) do if b.LockHighlight and b.UnlockHighlight then if cfg.template==key then b:LockHighlight() else b:UnlockHighlight() end end end
             for key,row in pairs(sliders) do row.b:SetValue(cfg[key]*row.factor); row.l:SetText(row.t..": "..math.floor(cfg[key]*row.factor+.5)) end
             index=math.max(1,math.min(index,#ordered))
             local e=ordered[index]; selected:SetText(e and (e.name.." ("..e.cost..")") or "No discovered abilities")
             local r=e and Rule(e) or {follow={}}
             repeatBox:SetChecked(r.repeatPips==true)
-            if e then repeatBox:Enable(); color:Enable(); local c=GetColor(e.id); swatch:SetVertexColor(c[1],c[2],c[3],1)
-            else repeatBox:Disable(); color:Disable() end
+            if e then repeatBox:Enable(); color:Enable(); global:Enable(); local c=GetColor(e.id); swatch:SetVertexColor(c[1],c[2],c[3],1)
+                local condition=cfg.globalFollow[e.id]; global:SetText("Global: "..(condition=="warning" and "Warning !" or condition=="opportunity" and "Opportunity +" or "Off"))
+            else repeatBox:Disable(); color:Disable(); global:Disable(); global:SetText("Global: Off") end
             local targets={}
             for _,n in ipairs(ordered) do if e and n.id~=e.id then targets[#targets+1]=n end end
             local pages=math.max(1,math.ceil(#targets/6)); targetPage=math.max(1,math.min(targetPage,pages)); page:SetText(targetPage.." / "..pages)
             local chosen={}; for _,id in ipairs(r.follow) do chosen[id]=true end
             for i,row in ipairs(choices) do
                 local n=targets[(targetPage-1)*6+i]; row.id=n and n.id
-                if n then row.b:Show(); row.l:Show(); row.l:SetText(n.name.." ("..n.cost..")"); row.b:SetChecked(chosen[n.id]==true)
-                    if chosen[n.id] or #r.follow<3 then row.b:Enable() else row.b:Disable() end
+                if n then
+                    local mode=cfg.globalFollow[n.id] or (chosen[n.id] and (r.conditions and r.conditions[n.id] or "opportunity"))
+                    row.b:Show(); row.l:Show(); row.l:SetText(n.name.." ("..n.cost..")"..(cfg.globalFollow[n.id] and " *" or ""))
+                    row.b:SetText(mode=="warning" and "!" or mode=="opportunity" and "+" or "Off")
+                    if not cfg.globalFollow[n.id] and (chosen[n.id] or #r.follow<3) then row.b:Enable() else row.b:Disable() end
                 else row.b:Hide(); row.l:Hide() end
             end
             syncing=false

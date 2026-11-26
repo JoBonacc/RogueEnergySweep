@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.19.0
+- Ability Chains supports per-relationship opportunity and warning indicators, plus global follow-up rules applied across other energy-spending buttons. Warning diamonds use the target ability color and an exclamation cutout, optionally pulsing, only while the source is affordable and the follow-up would be unaffordable after the configured GCD regeneration. Globals take precedence (warnings first), with up to three visible follow-up slots. Existing positive rules migrate unchanged.
+- `/resweep chains kick` enables a global Kick warning if Kick is discovered on an action bar. No protected energy arithmetic; native bounded curves drive warnings. Energy-only, not a target cooldown or combo-point prediction.
+
 ## v0.18.0
 - Add Energy Arsenal, a movable standalone tracker layout displaying alternative repeat-cast budgets as colored circles, diamonds, rectangular charges or public numeric counts (native pip fallback if protected). Horizontal rows or vertical stacks; optional icons, names and costs.
 - Reuse Ability Chains' palette, repeat definitions, native curves, partial fills, hide-inactive preference, repeat cap and assumed energy per GCD even with action-button pips disabled. Use the existing tracker ability picker and category/ability exclusions. Non-builders default to one pip unless configured or all-repeats is enabled. Energy-only estimates ignore cooldown/combo/positional constraints; all rows spend the same shared pool.

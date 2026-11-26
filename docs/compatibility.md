@@ -54,3 +54,6 @@ Only after all relevant checks pass, record build, addon version, date, client c
 
 ## v0.18.0 Arsenal checklist
 - [ ] Test all four Arsenal styles in both orientations, with icons/names/costs hidden or shown. Change color and repeat settings in Ability Chains with action-button pips disabled. Verify manual selection, talent cost changes, one-pip utility defaults, all-repeat option, count fallback in combat, stable placement and click-through. Verify shared energy semantics and no Lua/taint errors.
+
+## v0.19.0 warning checklist
+- [ ] Verify positive rule migration; cycle local and global conditions, global priority and duplicate suppression, warning visibility only inside the energy window, over-cap thresholds, pulsing and disabled cleanup. Test Kick global rule, cost changes, protected values and action-bar paging. Warnings are energy-only and ignore target cooldowns.

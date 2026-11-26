@@ -49,3 +49,5 @@ Optional Ability Chains pips visualize repeat and alternate follow-up energy bud
 Energy Breakpoints adds four icon-free shared resource views: segmented bar, staircase, threshold lights and segmented arc. Select the tracked spells to control the unique thresholds.
 
 Energy Arsenal adds movable, color-coded alternative cast budgets: circles, diamonds, rectangular charges or numeric counts (native pip fallback when protected), horizontal or vertical. Reuses Ability Chains settings and tracker selection.
+
+Ability Chains now supports opportunity (+) and warning (!) follow-ups and global target rules such as reserving Kick energy on every other tracked spending button.
