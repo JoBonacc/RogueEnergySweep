@@ -1,4 +1,4 @@
-# Rogue Energy Sweep v0.10.1 — experimental
+# Rogue Energy Sweep v0.11.0 — experimental
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
@@ -15,6 +15,9 @@ All four indicators support two progress modes. Energy-based (default) shows the
 ## Finisher filtering
 Enable **Finishers only with combo points on target** to hide energy overlays on finishers unless your current target has at least one combo point. Works independently of style and progress mode. Known ranked finishers and spells with a required combo-point cost are detected; other abilities are unaffected. Target swaps and combo-point events refresh the display. The setting defaults off; the demo and simulated preview ignore this gate. If target-specific combo points cannot be displayed safely, finisher overlays are hidden rather than showing stale points. `/resweep status` reports the gate source and number of detected finishers. Protected-value behavior needs live verification.
 
+## Ability filters
+Use **Ability filters...** to uncheck individual discovered energy abilities. Exclusions apply by spell ID to all matching buttons and are saved; new ranks may need to be excluded separately. **Hide on cooldown (ignore GCD)** uses native spell cooldown duration objects to suppress overlays on cooldown, excluding the global cooldown. If unavailable, effects remain visible. Both filters are optional, default off/empty, and bypassed by the demo. The preview is unaffected. Live verification is pending.
+
 ## Commands
 - `/resweep` or `/resweep options`: open options.
 - `/resweep demo`: display 50% progress for five seconds on tracked buttons (out of combat only).
@@ -25,6 +28,8 @@ Enable **Finishers only with combo points on target** to hide energy overlays on
 - `/resweep opacity 90`: change opacity.
 - `/resweep thickness 4`: change line/bar thickness.
 - `/resweep finishers on|off`: enable or disable target combo-point filtering (omit argument to toggle).
+- `/resweep filters`: open individual ability filters.
+- `/resweep cooldowns on|off`: toggle cooldown filtering.
 - `/resweep combat`: toggle combat-only.
 - `/resweep on` / `/resweep off`: enable or disable.
 - `/resweep rescan`: rediscover action buttons.

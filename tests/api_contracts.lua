@@ -235,3 +235,25 @@ assert(layout.footer-(layout.previewCosts+12)>=10)
 assert(src:find('line:SetPoint("LEFT",heading,"RIGHT",12,0)',1,true))
 assert(src:find('Check("Tint filled area",16,-layout.tint',1,true))
 print("PASS: options row separation and heading-aligned dividers")
+
+-- Cooldown filtering must request ignoreGCD and never compare secret duration.
+local filterEnv=setmetatable({DB={excludedSpells={}},issecretvalue=env.issecretvalue},{__index=_G})
+local filterCode=section("local function IsSecret","local MODES")..section("local cooldownCurve","local function Clear(")
+local cdAlpha,cdGate,excluded=assert(load(filterCode.."\nreturn CooldownAlpha,ApplyCooldownGate,IsExcluded","filter mocks","t",filterEnv))()
+assert(cdAlpha(123)==1)
+local remaining=0
+filterEnv.C_Spell={GetSpellCooldownDuration=function(id,ignore) assert(id==123 and ignore==true); return {GetRemainingDuration=function() return remaining end,EvaluateRemainingDuration=function(_,curve) assert(curve); return secret end} end}
+filterEnv.C_CurveUtil={CreateCurve=function() return {AddPoint=function() end} end}
+assert(cdAlpha(123)==1)
+remaining=12; assert(cdAlpha(123)==0)
+remaining=secret; local alpha,source=cdAlpha(123); assert(rawequal(alpha,secret) and source=="native cooldown")
+local r={spellID=123,cooldownGate={SetAlpha=function(self,v) self.alpha=v end}}
+assert(cdGate(r,alpha) and rawequal(r.cooldownGate.alpha,secret))
+r.cooldownGate.SetAlpha=function(self,v) if rawequal(v,secret) then error("rejected") end; self.alpha=v end
+assert(not cdGate(r,secret) and r.cooldownGate.alpha==1)
+filterEnv.C_Spell.GetSpellCooldownDuration=function() error("restricted") end
+assert(cdAlpha(123)==1)
+assert(not excluded(r)); filterEnv.DB.excludedSpells[123]=true; assert(excluded(r))
+assert(src:find('not demo and IsExcluded(record)',1,true))
+assert(src:find('DB.hideCooldowns and not demo',1,true))
+print("PASS: cooldown GCD exclusion, native secret alpha, fail-open and ability exclusions")

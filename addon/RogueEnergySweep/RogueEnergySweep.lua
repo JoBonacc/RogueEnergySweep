@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.10.1 (WoW Forever)
+-- Rogue Energy Sweep 0.11.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -89,6 +89,11 @@ local function InitDB()
     if type(DB.enabled) ~= "boolean" then DB.enabled = true end
     DB.combatOnly = DB.combatOnly == true
     DB.finisherComboOnly = DB.finisherComboOnly == true
+    DB.hideCooldowns = DB.hideCooldowns == true
+    if type(DB.excludedSpells)~="table" then DB.excludedSpells={} end
+    for id,excluded in pairs(DB.excludedSpells) do
+        if not SafeNumber(id) or id<=0 or excluded~=true then DB.excludedSpells[id]=nil end
+    end
     if not MODES[DB.mode] or DB.mode == "auto" then DB.mode = "rising" end
     if type(DB.customColor)=="table" then
         DB.customColor=ValidRGB(DB.customColor[1],DB.customColor[2],DB.customColor[3])
@@ -278,6 +283,37 @@ local function ApplyComboGate(record,alpha,enabled)
     return ok
 end
 
+-- An independent display-only gate keeps energy and combo-point alpha intact.
+local cooldownCurve
+local function CooldownAlpha(spellID)
+    if not C_Spell or type(C_Spell.GetSpellCooldownDuration)~="function" then return 1,"unavailable" end
+    local ok,alpha=pcall(function()
+        -- Explicitly exclude the global cooldown. Never inspect secret timing values.
+        local duration=C_Spell.GetSpellCooldownDuration(spellID,true)
+        if not IsSecret(duration) and duration==nil then return 1 end
+        local remaining=duration:GetRemainingDuration()
+        local public=SafeNumber(remaining)
+        if public then return public<=0 and 1 or 0 end
+        if not IsSecret(remaining) then error("remaining duration unavailable") end
+        if not cooldownCurve then
+            local c=C_CurveUtil.CreateCurve()
+            c:AddPoint(0,1); c:AddPoint(0.001,0); c:AddPoint(86400,0)
+            cooldownCurve=c
+        end
+        return duration:EvaluateRemainingDuration(cooldownCurve)
+    end)
+    if ok and (IsSecret(alpha) or SafeNumber(alpha)) then return alpha,"native cooldown" end
+    return 1,"unavailable"
+end
+local function ApplyCooldownGate(record,alpha)
+    local ok=pcall(record.cooldownGate.SetAlpha,record.cooldownGate,alpha)
+    if not ok then pcall(record.cooldownGate.SetAlpha,record.cooldownGate,1) end
+    return ok
+end
+local function IsExcluded(record)
+    return DB.excludedSpells[record.spellID]==true
+end
+
 local function Clear(record)
     record.radial:Hide()
     record.bar:Hide()
@@ -335,7 +371,9 @@ end
 
 local function MakeOverlay(button, preview)
     if not preview and overlays[button] then return overlays[button] end
-    local gate = CreateFrame("Frame",nil,button)
+    local cooldownGate=CreateFrame("Frame",nil,button)
+    cooldownGate:SetAllPoints(button); cooldownGate:EnableMouse(false)
+    local gate = CreateFrame("Frame",nil,cooldownGate)
     gate:SetAllPoints(button); gate:EnableMouse(false)
     local frame = CreateFrame("Frame", nil, gate)
     local icon = button.icon or button.Icon
@@ -387,7 +425,7 @@ local function MakeOverlay(button, preview)
     edges[2]:SetPoint("TOPRIGHT",frame,"TOPRIGHT",0,0); edges[2]:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",0,0)
     edges[3]:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",0,0); edges[3]:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",0,0)
     edges[4]:SetPoint("TOPLEFT",frame,"TOPLEFT",0,0); edges[4]:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",0,0)
-    local record = {button=button,frame=frame,comboGate=gate,radial=radial,bar=bar,native=native,track=track,rising=rising,riseTint=tint,line=line,edges=edges}
+    local record = {button=button,frame=frame,comboGate=gate,cooldownGate=cooldownGate,radial=radial,bar=bar,native=native,track=track,rising=rising,riseTint=tint,line=line,edges=edges}
     if not preview then overlays[button]=record end
     Style(record); Clear(record)
     return record
@@ -675,6 +713,7 @@ local function SetProgress(mode)
 end
 
 local lastComboSource="not evaluated"
+local lastCooldownSource="off"
 local function Update()
     updatePending = false
     if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); if DB and DB.progress=="countdown" then ResetProgress() end; if refreshLiveStatus then refreshLiveStatus() end; return end
@@ -683,6 +722,9 @@ local function Update()
     local gateEnabled=DB.finisherComboOnly and not demo
     if gateEnabled then comboAlpha,lastComboSource=TargetComboAlpha()
     else lastComboSource=demo and "demo bypass" or "off" end
+    local cooldowns={}
+    local cooldownEnabled=DB.hideCooldowns and not demo
+    lastCooldownSource=cooldownEnabled and "native cooldown" or (demo and "demo bypass" or "off")
     lastSource = "no tracked energy abilities"
     for cost,group in pairs(groups) do
         local fill,deficit,visibility,valid
@@ -715,7 +757,21 @@ local function Update()
         for _,record in ipairs(group.records) do
             record.renderError=nil
             if not ApplyComboGate(record,comboAlpha,gateEnabled) then lastComboSource="native gate rejected" end
-            if valid then
+            local excluded=not demo and IsExcluded(record)
+            if excluded then
+                Clear(record); record.progressState="excluded"
+            elseif valid then
+                local alpha=1
+                if cooldownEnabled then
+                    local cached=cooldowns[record.spellID]
+                    if not cached then
+                        local value,source=CooldownAlpha(record.spellID)
+                        cached={value=value,source=source}; cooldowns[record.spellID]=cached
+                    end
+                    alpha=cached.value
+                    if cached.source=="unavailable" then lastCooldownSource="partial/unavailable" end
+                end
+                if not ApplyCooldownGate(record,alpha) then lastCooldownSource="partial/unavailable" end
                 if directRange then
                     -- Retry on a new snapshot, style change, or reload, not every power event.
                     local failed=record.failedGroup==group and record.failedGeneration==group.generation and record.failedMode==DB.mode
@@ -829,7 +885,7 @@ local function ProgressSummary()
         if record.cost and record.cost>0 and record.progressState then states[record.progressState]=(states[record.progressState] or 0)+1 end
     end
     local parts={}
-    for _,key in ipairs({"native countdown","public countdown","energy fallback","energy","demo","unavailable"}) do
+    for _,key in ipairs({"native countdown","public countdown","energy fallback","energy","demo","excluded","unavailable"}) do
         if states[key] then parts[#parts+1]=string.format("%s: %d",key,states[key]) end
     end
     return #parts>0 and table.concat(parts," | ") or "no active indicators",states
@@ -847,13 +903,14 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.10.1 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.11.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
     local finishers=0
     for _,record in ipairs(records) do if record.finisher and record.cost and record.cost>0 then finishers=finishers+1 end end
     Say("finisher gate: "..(DB.finisherComboOnly and "on" or "off").." | "..finishers.." finishers | "..lastComboSource)
+    Say("cooldown gate: "..(DB.hideCooldowns and "on" or "off").." | "..lastCooldownSource)
     for _,record in ipairs(records) do
         if record.cost and record.renderError then Say("spell "..tostring(record.spellID).." / "..DB.mode..": "..record.renderError) end
     end
@@ -861,11 +918,12 @@ local function Status()
     CheckCompatibility(false)
     CheckBuild(false)
 end
-local optionsPanel, settingsCategory, refreshPanel
+local optionsPanel, settingsCategory, refreshPanel, refreshAbilityFilters, abilityFilters
 local function ApplySettings()
     for _,record in pairs(overlays) do Style(record) end
     Update()
     if refreshPanel then refreshPanel() end
+    if refreshAbilityFilters and abilityFilters and abilityFilters:IsShown() then refreshAbilityFilters() end
 end
 
 -- Keep options availability separate from saved preferences.
@@ -880,11 +938,102 @@ end
 -- Positive distances from the top of the panel; use one shared layout so
 -- controls and section boundaries can be checked together.
 local OPTION_LAYOUT = {
-    thickness=170, tint=212, progress=247, progressButtons=265, progressStatus=294,
-    appearance=319, colors=337, colorLabel=365, opacity=382,
-    preview=435, previewSliders=453, previewIcons=499, previewCosts=552, footer=574,
+    thickness=198, tint=240, progress=275, progressButtons=293, progressStatus=322,
+    appearance=347, colors=365, colorLabel=393, opacity=410,
+    preview=463, previewSliders=481, previewIcons=527, previewCosts=580, footer=602,
     sliderOffset=20, sliderHeight=16, buttonHeight=24
 }
+
+local function AbilityFilterEntries()
+    local entries,seen={},{}
+    local function Add(id,tracked)
+        if not SafeNumber(id) or seen[id] then return end
+        seen[id]=true
+        local name,icon
+        if C_Spell and C_Spell.GetSpellInfo then
+            local ok,info=pcall(C_Spell.GetSpellInfo,id)
+            if ok and not IsSecret(info) and type(info)=="table" then
+                if not IsSecret(info.name) and type(info.name)=="string" then name=info.name end
+                icon=SafeNumber(info.iconID)
+            end
+        end
+        entries[#entries+1]={id=id,name=name or ("Spell "..id),icon=icon,tracked=tracked}
+    end
+    for _,record in ipairs(records) do if record.cost and record.cost>0 then Add(record.spellID,true) end end
+    for id in pairs(DB.excludedSpells) do Add(id,false) end
+    table.sort(entries,function(a,b) if a.name==b.name then return a.id<b.id end return a.name<b.name end)
+    return entries
+end
+
+local function OpenAbilityFilters()
+    if not abilityFilters then
+        local panel=CreateFrame("Frame","RogueEnergySweepAbilityFilters",UIParent,"BasicFrameTemplateWithInset")
+        abilityFilters=panel
+        panel:SetSize(460,390); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
+        panel:SetMovable(true); panel:RegisterForDrag("LeftButton")
+        panel:SetScript("OnDragStart",function(self) self:StartMoving() end)
+        panel:SetScript("OnDragStop",function(self) self:StopMovingOrSizing() end)
+        if panel.TitleText then panel.TitleText:SetText("Ability filters") end
+        local function Label(text,x,y,template)
+            local f=panel:CreateFontString(nil,"ARTWORK",template or "GameFontHighlight")
+            f:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); f:SetText(text); return f
+        end
+        local function Button(text,x,y,w,click)
+            local b=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
+            b:SetSize(w,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); b:SetText(text); b:SetScript("OnClick",click); return b
+        end
+        Label("Uncheck abilities to hide their energy effects.",16,-36)
+        Label("Shows energy abilities discovered on your action bars.",16,-55,"GameFontHighlightSmall")
+        local page=1
+        local pageLabel=Label("",190,-337,"GameFontHighlightSmall")
+        local empty=Label("No energy abilities found. Put abilities on your bars.",16,-90,"GameFontHighlightSmall")
+        local rows={}
+        for i=1,8 do
+            local y=-76-(i-1)*30
+            local box=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate")
+            box:SetSize(24,24); box:SetPoint("TOPLEFT",panel,"TOPLEFT",16,y)
+            local icon=panel:CreateTexture(nil,"ARTWORK")
+            icon:SetSize(22,22); icon:SetPoint("TOPLEFT",panel,"TOPLEFT",46,y-1)
+            local label=Label("",76,y-5)
+            local hit=CreateFrame("Button",nil,panel)
+            hit:SetPoint("TOPLEFT",label,"TOPLEFT",-2,4); hit:SetPoint("BOTTOMRIGHT",label,"BOTTOMRIGHT",4,-4)
+            hit:SetScript("OnClick",function() box:Click() end)
+            local row={box=box,icon=icon,label=label,hit=hit}
+            box:SetScript("OnClick",function(self)
+                if row.id then
+                    if self:GetChecked() then DB.excludedSpells[row.id]=nil else DB.excludedSpells[row.id]=true end
+                    ApplySettings()
+                end
+            end)
+            rows[i]=row
+        end
+        local prev=Button("Previous",16,-329,100,function() page=page-1; refreshAbilityFilters() end)
+        local nextPage=Button("Next",344,-329,100,function() page=page+1; refreshAbilityFilters() end)
+        Button("Reset exclusions",16,-358,140,function() DB.excludedSpells={}; ApplySettings() end)
+        Button("Done",344,-358,100,function() panel:Hide() end)
+        refreshAbilityFilters=function()
+            local entries=AbilityFilterEntries()
+            local pages=math.max(1,math.ceil(#entries/#rows))
+            page=math.max(1,math.min(page,pages))
+            pageLabel:SetText(page.." / "..pages)
+            if page>1 then prev:Enable() else prev:Disable() end
+            if page<pages then nextPage:Enable() else nextPage:Disable() end
+            if #entries==0 then empty:Show() else empty:Hide() end
+            for i,row in ipairs(rows) do
+                local entry=entries[(page-1)*#rows+i]
+                row.id=entry and entry.id or nil
+                if entry then
+                    row.box:SetChecked(not DB.excludedSpells[entry.id])
+                    row.icon:SetTexture(entry.icon or 134400)
+                    row.label:SetText(entry.name..(entry.tracked and "" or " (not on bars)").."  |cff999999#"..entry.id.."|r")
+                    row.box:Show(); row.icon:Show(); row.label:Show(); row.hit:Show()
+                else row.box:Hide(); row.icon:Hide(); row.label:Hide(); row.hit:Hide() end
+            end
+        end
+        panel:SetScript("OnShow",refreshAbilityFilters)
+    end
+    abilityFilters:Show(); refreshAbilityFilters()
+end
 
 local function CreateOptions()
     if optionsPanel then return end
@@ -934,11 +1083,13 @@ local function CreateOptions()
     local enabled=Check("Enable overlays",16,-68,function(v) DB.enabled=v; if v then RequestScan() end end)
     local combat=Check("Only in combat",225,-68,function(v) DB.combatOnly=v end)
     local comboOnly=Check("Finishers only with combo points on target",16,-91,function(v) DB.finisherComboOnly=v end)
-    Section("Animation style", -122)
+    local cooldownOnly=Check("Hide on cooldown (ignore GCD)",16,-116,function(v) DB.hideCooldowns=v end)
+    local filtersButton=Button("Ability filters...",324,-116,120,OpenAbilityFilters)
+    Section("Animation style", -150)
     local modes={}
     for i,entry in ipairs({{"rising","Rising line"},{"bar","Bottom bar"},{"perimeter","Perimeter"},{"radial","Radial sweep"}}) do
         local key,text=entry[1],entry[2]
-        modes[key]=Button(text,16+(i-1)*110,-140,106,function() if DB.mode~=key then DB.mode=key; ApplySettings() end end)
+        modes[key]=Button(text,16+(i-1)*110,-168,106,function() if DB.mode~=key then DB.mode=key; ApplySettings() end end)
     end
     Section("Progress mode", -layout.progress)
     local progressButtons={}
@@ -1007,7 +1158,7 @@ local function CreateOptions()
     local tint,tintLabel=Check("Tint filled area",16,-layout.tint,function(v)
         if DB.mode=="rising" then DB.tint=v end
     end)
-    local radialHint=Label("Radial sweep uses color and opacity below.",16,-178,"GameFontHighlightSmall")
+    local radialHint=Label("Radial sweep uses color and opacity below.",16,-206,"GameFontHighlightSmall")
     Section("Preview", -layout.preview)
     local previewEnergy=15
     local previewRecords={}
@@ -1027,7 +1178,9 @@ local function CreateOptions()
     refreshPanel=function()
         refreshLiveStatus()
         syncing=true
-        enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint); comboOnly:SetChecked(DB.finisherComboOnly)
+        enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint); comboOnly:SetChecked(DB.finisherComboOnly); cooldownOnly:SetChecked(DB.hideCooldowns)
+        local excludedCount=0; for _ in pairs(DB.excludedSpells) do excludedCount=excludedCount+1 end
+        filtersButton:SetText(excludedCount>0 and ("Filters ("..excludedCount..")...") or "Ability filters...")
         for key,b in pairs(modes) do SelectButton(b,key==DB.mode) end
         for key,b in pairs(progressButtons) do SelectButton(b,key==DB.progress) end
         local tintAvailable,thicknessAvailable=StyleOptions(DB.mode)
@@ -1061,6 +1214,7 @@ local function CreateOptions()
         syncing=false
     end
     panel:SetScript("OnShow",refreshPanel)
+    panel:SetScript("OnHide",function() if abilityFilters then abilityFilters:Hide() end end)
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
         settingsCategory=Settings.RegisterCanvasLayoutCategory(panel,"Rogue Energy Sweep")
         Settings.RegisterAddOnCategory(settingsCategory)
@@ -1077,7 +1231,7 @@ local function OpenOptions()
     else Say("Settings unavailable; use /resweep help.") end
 end
 local function Help()
-    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
@@ -1085,6 +1239,7 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     local cmd, arg = (msg or ""):lower():match("^%s*(%S*)%s*(.-)%s*$")
     if cmd == "" or cmd == "options" then OpenOptions(); return
     elseif cmd == "status" then Status(); return
+    elseif cmd == "filters" then OpenAbilityFilters(); return
     elseif cmd == "demo" then
         if not DB.enabled then Say("Enable the addon first with /resweep on."); return end
         if InCombatLockdown() then Say("Demo is available out of combat only."); return end
@@ -1100,6 +1255,9 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     elseif cmd == "finishers" and (arg=="on" or arg=="off" or arg=="") then
         if arg=="" then DB.finisherComboOnly=not DB.finisherComboOnly else DB.finisherComboOnly=arg=="on" end
         Say("Finishers require target combo points: "..tostring(DB.finisherComboOnly))
+    elseif cmd=="cooldowns" and (arg=="on" or arg=="off" or arg=="") then
+        if arg=="" then DB.hideCooldowns=not DB.hideCooldowns else DB.hideCooldowns=arg=="on" end
+        Say("Hide on cooldown: "..tostring(DB.hideCooldowns))
     elseif cmd == "opacity" and tonumber(arg) then DB.opacity = math.max(0.15, math.min(1.00, tonumber(arg)/100))
     elseif cmd == "color" then
         if COLORS[arg] then DB.color=arg
@@ -1116,7 +1274,7 @@ end
 local events = CreateFrame("Frame")
 for _, event in ipairs({"ADDON_LOADED","PLAYER_ENTERING_WORLD","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED",
     "ACTIONBAR_SLOT_CHANGED","ACTIONBAR_PAGE_CHANGED","SPELLS_CHANGED","PLAYER_EQUIPMENT_CHANGED",
-    "PLAYER_TALENT_UPDATE","ACTIVE_TALENT_GROUP_CHANGED","UPDATE_SHAPESHIFT_FORM","UPDATE_STEALTH","PLAYER_TARGET_CHANGED","COMBO_TARGET_CHANGED","UNIT_COMBO_POINTS"}) do
+    "PLAYER_TALENT_UPDATE","ACTIVE_TALENT_GROUP_CHANGED","UPDATE_SHAPESHIFT_FORM","UPDATE_STEALTH","PLAYER_TARGET_CHANGED","COMBO_TARGET_CHANGED","UNIT_COMBO_POINTS","SPELL_UPDATE_COOLDOWN","ACTIONBAR_UPDATE_COOLDOWN","SPELL_UPDATE_CHARGES"}) do
     pcall(events.RegisterEvent, events, event)
 end
 for _, event in ipairs({"UNIT_POWER_FREQUENT","UNIT_POWER_UPDATE","UNIT_MAXPOWER","UNIT_AURA","UNIT_SPELLCAST_SUCCEEDED"}) do
@@ -1132,6 +1290,8 @@ events:SetScript("OnEvent", function(_, event, ...)
     end
     if not DB then return end
     if event == "PLAYER_ENTERING_WORLD" then CheckCompatibility(true); CheckBuild(true); RequestScan()
+    elseif event=="SPELL_UPDATE_COOLDOWN" or event=="ACTIONBAR_UPDATE_COOLDOWN" or event=="SPELL_UPDATE_CHARGES" then
+        if DB.enabled and DB.hideCooldowns then RequestUpdate() end
     elseif event=="PLAYER_TARGET_CHANGED" or event=="COMBO_TARGET_CHANGED" or event=="UNIT_COMBO_POINTS" then
         if DB.enabled and DB.finisherComboOnly then RequestUpdate() end
     elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_POWER_UPDATE" then

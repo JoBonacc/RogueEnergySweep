@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.11.0
+- Add optional per-ability exclusions with a paginated named/icon list of tracked and excluded spells.
+- Add optional cooldown filtering using native duration objects with GCD excluded; fail open when the API is unavailable. Separate display gates preserve combo-point and energy opacity.
+- Refresh on cooldown and charge events; filters are bypassed for the demo. Add regression tests and status diagnostics. Live verification pending.
+
 ## v0.10.1
 - Move section divider lines alongside headings so they cannot cross preceding sliders.
 - Give the Rising Line thickness slider and tint checkbox separate rows, with additional spacing before Progress mode, Appearance and Preview.
