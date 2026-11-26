@@ -295,7 +295,7 @@ local function Layout(entries)
         elseif cfg.layout=="rings" then
             local slot=(i-1)%4
             local cluster=math.floor((i-1)/4)
-            local diameter=clusterSize*(1-slot*.19)
+            local diameter=clusterSize*(.75^slot)
             local iconSize=math.min(size,clusterSize/4-5)
             row.frame:SetSize(clusterWidth,clusterSize); row.frame:SetPoint("TOPLEFT",root,"TOPLEFT",0,-cluster*(clusterSize+gap))
             row.icon:SetSize(iconSize,iconSize)
@@ -303,8 +303,9 @@ local function Layout(entries)
             row.ringTrack:SetSize(diameter,diameter); row.ringTrack:SetPoint("LEFT",row.combo,"LEFT",(clusterSize-diameter)/2,0); row.ringTrack:Show()
             -- Modulate the shared hue slightly so adjacent rings are distinguishable.
             local shade=1-slot*.12
+            row.bar:SetSize(70,5); row.bar:SetPoint("LEFT",row.icon,"RIGHT",5,-15); row.bar:SetStatusBarColor(r,g,b,cfg.opacity); row.track:SetAllPoints(row.bar)
             if row.ring then row.ring:SetAllPoints(row.ringTrack); row.ring:SetStatusBarColor(r*shade,g*shade,b*shade,cfg.opacity)
-            else row.bar:SetSize(70,5); row.bar:SetPoint("LEFT",row.icon,"RIGHT",5,-8); row.bar:SetStatusBarColor(r,g,b,cfg.opacity); row.track:SetAllPoints(row.bar); row.track:Show() end
+            else row.track:Show() end
             row.name:SetPoint("LEFT",row.icon,"RIGHT",5,5); row.costLabel:SetPoint("LEFT",row.icon,"RIGHT",5,-8)
         else
             row.frame:SetSize(size,size)
@@ -369,7 +370,9 @@ function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,com
             if cfg.hideReady and cfg.layout~="dial" then row.frame:SetAlpha(visibility) else row.frame:SetAlpha(1) end
             row.frame:Show()
             if cfg.layout=="bars" then SetRange(row.bar,fill,group,direct)
-            elseif cfg.layout=="rings" then SetRange(row.ring or row.bar,fill,group,direct)
+            elseif cfg.layout=="rings" then
+                if row.ring and SetRange(row.ring,fill,group,direct) then row.bar:Hide(); row.track:Hide()
+                else row.track:Show(); SetRange(row.bar,fill,group,direct) end
             elseif cfg.layout=="dial" then
                 if api.secret(ready) or api.safe(ready)~=nil then
                     if not pcall(row.bright.SetAlpha,row.bright,ready) then row.bright:SetAlpha(0) end
@@ -507,7 +510,7 @@ function T.Open()
             if page<pages then nextPage:Enable() else nextPage:Disable() end
             for i,row in ipairs(choices) do
                 local e=entries[(page-1)*#choices+i]; row.id=e and e.spellID or nil
-                if e then row.b:Show(); row.l:Show(); row.l:SetText(e.name.." ("..e.cost..")"); row.b:SetChecked(cfg.auto and e.current or cfg.selected[e.spellID]==true); if cfg.auto then row.b:Disable() else row.b:Enable() end
+                if e then row.b:Show(); row.l:Show(); row.l:SetText(e.name.." ("..e.cost..")"); row.b:SetChecked((cfg.auto and e.current==true) or (not cfg.auto and cfg.selected[e.spellID]==true)); if cfg.auto then row.b:Disable() else row.b:Enable() end
                 else row.b:Hide(); row.l:Hide() end
             end
             syncing=false

@@ -1,7 +1,7 @@
 # Changelog
 
 ## v0.16.0
-- Add optional standalone Energy Tracker: Dial, Bars, Icons, Freeform and Rings layouts with independent appearance, movable locked/unlocked frames, manual ability selection and action-bar display toggle.
+- Add optional standalone Energy Tracker: Dial, Bars, Icons, Freeform and concentric Rings layouts with independent appearance, movable locked/unlocked frames, manual ability selection and action-bar display toggle.
 - Share native energy/cost groups, countdown snapshots and filtering with the original overlays. Dial uses original transparent ring artwork and static cost markers; numeric energy only when public. Add diagnostics and a separate settings window.
 - Tracker disabled by default. Native geometry, layout, placement and performance require live validation.
 

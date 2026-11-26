@@ -447,7 +447,6 @@ local tf=assert(io.open("addon/RogueEnergySweep/Tracker.lua")); local ts=tf:read
 local function trackerSection(a,b)
     local start=assert(ts:find(a,1,true)); local stop=assert(ts:find(b,start+1,true)); return ts:sub(start,stop-1)
 end
-local geometry=assert(load(trackerSection("local function DialPoint","local function SpellInfo").."\nreturn DialPoint,SortedEntries","tracker geometry","t",_G))()
 local dialPoint,sorted=assert(load(trackerSection("local function DialPoint","local function SpellInfo").."\nreturn DialPoint,SortedEntries","tracker geometry","t",_G))()
 local x,y=dialPoint(0,100,100); near(x,0); near(y,-100)
 x,y=dialPoint(100,100,100); near(x,100); near(y,0)

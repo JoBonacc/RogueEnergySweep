@@ -42,4 +42,4 @@ Update the TOC, Lua version, addon README and changelog together. Change the sup
 Adapted from [Rogue Energy Need](https://www.curseforge.com/wow/addons/rogue-energy-need) 0.2.1 by Vryllak and Rogue Energy Need contributors, under the [MIT License](LICENSE). Original copyright and license notices are retained in the addon package. This is a separate, unofficial derivative.
 
 ## Optional standalone Energy Tracker
-Five movable layouts: a shared energy dial, stacked bars, grouped icons, freeform icons and per-ability rings. Independent color, scale, size, spacing and icon style; action bars, tracker, or both. Shares native protected energy curves and cooldown/finisher filters with the original overlay. Disabled by default; live verification pending.
+Five movable layouts: a shared energy dial, stacked bars, grouped icons, freeform icons and concentric per-ability rings. Independent color, scale, size, spacing and icon style; action bars, tracker, or both. Shares native protected energy curves and cooldown/finisher filters with the original overlay. Disabled by default; live verification pending.
