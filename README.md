@@ -21,7 +21,7 @@ Customizable energy readiness indicators directly on your Rogue action buttons i
 
 Choose **energy-based** progress (fraction of the spell cost accumulated) or **countdown-based** progress (starts at zero after a detected spend). For example, a 45-energy ability with 15 energy left starts at 33% in energy mode or 0% in countdown mode. Both follow actual energy, not a fixed timer. Countdown is experimental and may fall back to energy mode. The options panel and `/resweep status` distinguish actual native/public countdown from energy fallback.
 
-Type `/resweep` to change style, progress mode, color, opacity, thickness, tint and combat-only behavior. Choose from eight preset colors or use the native custom RGB picker; colors preview live, cancel restores the previous selection, and opacity remains independent. Hex colors are also supported with `/resweep color #RRGGBB`. The panel includes a simulated preview and a test on your bars. Existing spell cooldowns and the global cooldown are not modified.
+Type `/resweep` to change style, progress mode, color, opacity, thickness, tint and combat-only behavior. Choose from eight preset colors or use the native custom RGB picker; colors preview live, cancel restores the previous selection, and opacity remains independent. Hex colors are also supported with `/resweep color #RRGGBB` (for example, `/resweep color #FFCC33`). The panel includes a simulated preview and a test on your bars. Existing spell cooldowns and the global cooldown are not modified.
 
 ## Support and compatibility
 
