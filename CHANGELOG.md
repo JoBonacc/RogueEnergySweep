@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.10.1
+- Move section divider lines alongside headings so they cannot cross preceding sliders.
+- Give the Rising Line thickness slider and tint checkbox separate rows, with additional spacing before Progress mode, Appearance and Preview.
+- Add layout spacing regression assertions. No changes to rendering or saved settings; in-game layout verification pending.
+
 ## v0.10.0
 - Group options into Behavior, Animation style, Progress mode, Appearance and Preview with section dividers.
 - Move style-specific controls below the style selector; hide and disable tint outside Rising Line and thickness for Radial Sweep. Preserve saved values when switching styles.

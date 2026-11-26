@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.10.0 (WoW Forever)
+-- Rogue Energy Sweep 0.10.1 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -847,7 +847,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.10.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.10.1 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -877,6 +877,15 @@ local function SetControlAvailable(control,label,available)
     else control:Disable(); control:Hide(); label:Hide() end
 end
 
+-- Positive distances from the top of the panel; use one shared layout so
+-- controls and section boundaries can be checked together.
+local OPTION_LAYOUT = {
+    thickness=170, tint=212, progress=247, progressButtons=265, progressStatus=294,
+    appearance=319, colors=337, colorLabel=365, opacity=382,
+    preview=435, previewSliders=453, previewIcons=499, previewCosts=552, footer=574,
+    sliderOffset=20, sliderHeight=16, buttonHeight=24
+}
+
 local function CreateOptions()
     if optionsPanel then return end
     local panel=CreateFrame("Frame","RogueEnergySweepOptionsPanel")
@@ -903,11 +912,15 @@ local function CreateOptions()
         b.optionLabelHit=hit
         return b,label
     end
+    local layout=OPTION_LAYOUT
     local function Section(text,y)
+        local heading=Label(text,16,y,"GameFontNormal")
         local line=panel:CreateTexture(nil,"ARTWORK")
-        line:SetPoint("TOPLEFT",panel,"TOPLEFT",16,y+7)
-        line:SetSize(428,1); line:SetColorTexture(0.52,0.45,0.30,0.45)
-        return Label(text,16,y,"GameFontNormal")
+        -- Align the divider with its heading, not with the previous control.
+        line:SetPoint("LEFT",heading,"RIGHT",12,0)
+        line:SetPoint("RIGHT",panel,"TOPLEFT",444,y-6)
+        line:SetHeight(1); line:SetColorTexture(0.52,0.45,0.30,0.45)
+        return heading
     end
     local function SelectButton(b,selected)
         if b.LockHighlight and b.UnlockHighlight then
@@ -927,11 +940,11 @@ local function CreateOptions()
         local key,text=entry[1],entry[2]
         modes[key]=Button(text,16+(i-1)*110,-140,106,function() if DB.mode~=key then DB.mode=key; ApplySettings() end end)
     end
-    Section("Progress mode", -215)
+    Section("Progress mode", -layout.progress)
     local progressButtons={}
-    progressButtons.energy=Button("Energy-based",16,-233,132,function() SetProgress("energy"); ApplySettings() end)
-    progressButtons.countdown=Button("Countdown",156,-233,132,function() SetProgress("countdown"); ApplySettings() end)
-    local liveStatus=Label("Countdown starts after spending energy (experimental).",16,-261,"GameFontHighlightSmall")
+    progressButtons.energy=Button("Energy-based",16,-layout.progressButtons,132,function() SetProgress("energy"); ApplySettings() end)
+    progressButtons.countdown=Button("Countdown",156,-layout.progressButtons,132,function() SetProgress("countdown"); ApplySettings() end)
+    local liveStatus=Label("Countdown starts after spending energy (experimental).",16,-layout.progressStatus,"GameFontHighlightSmall")
     local previousStatus
     refreshLiveStatus=function()
         if DB.progress~="countdown" then
@@ -943,11 +956,11 @@ local function CreateOptions()
         if states["energy fallback"] or states.unavailable then message="|cffffaa44"..message.."|r" end
         if previousStatus~=message then liveStatus:SetText(message); previousStatus=message end
     end
-    Section("Appearance", -286)
+    Section("Appearance", -layout.appearance)
     local colors,selectedMarks={},{}
     for i,entry in ipairs(PRESETS) do
         local key,name=entry[1],entry[2]
-        local b=Button("",16+(i-1)*35,-304,32,function() DB.color=key; ApplySettings() end)
+        local b=Button("",16+(i-1)*35,-layout.colors,32,function() DB.color=key; ApplySettings() end)
         colors[key]=b
         local swatch=b:CreateTexture(nil,"ARTWORK")
         swatch:SetPoint("TOPLEFT",b,"TOPLEFT",5,-4)
@@ -967,50 +980,50 @@ local function CreateOptions()
         end)
         b:SetScript("OnLeave",function() GameTooltip:Hide() end)
     end
-    local custom=Button("Custom...",304,-304,140,function()
+    local custom=Button("Custom...",304,-layout.colors,140,function()
         if not OpenCustomColorPicker(ApplySettings) then Say("Color picker unavailable. Use /resweep color #RRGGBB.") end
     end)
     local customSwatch=custom:CreateTexture(nil,"OVERLAY")
     customSwatch:SetSize(13,13); customSwatch:SetPoint("LEFT",custom,"LEFT",10,0)
-    local colorLabel=Label("",16,-332,"GameFontHighlightSmall")
+    local colorLabel=Label("",16,-layout.colorLabel,"GameFontHighlightSmall")
     local function Slider(name,x,y,low,high,step,callback)
         local label=Label(name,x,y)
         local sliderName="RogueEnergySweep"..name.."Slider"
         local slider=CreateFrame("Slider",sliderName,panel,"OptionsSliderTemplate")
         for _,suffix in ipairs({"Text","Low","High"}) do local f=_G[sliderName..suffix]; if f then f:SetText("") end end
-        slider:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y-25); slider:SetSize(180,16)
+        slider:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y-layout.sliderOffset); slider:SetSize(180,layout.sliderHeight)
         slider:SetMinMaxValues(low,high); slider:SetValueStep(step)
         if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
         slider:SetScript("OnValueChanged",function(_,v) callback(math.floor(v+0.5)) end)
         return slider,label
     end
     local syncing=false
-    local opacity,opacityLabel=Slider("Opacity",16,-349,15,100,5,function(v) if not syncing then DB.opacity=v/100; ApplySettings() end end)
+    local opacity,opacityLabel=Slider("Opacity",16,-layout.opacity,15,100,5,function(v) if not syncing then DB.opacity=v/100; ApplySettings() end end)
     -- Style-specific settings live immediately below the style selector.
-    local thickness,thicknessLabel=Slider("Thickness",16,-171,2,8,1,function(v)
+    local thickness,thicknessLabel=Slider("Thickness",16,-layout.thickness,2,8,1,function(v)
         local _,available=StyleOptions(DB.mode)
         if not syncing and available then DB.thickness=v; ApplySettings() end
     end)
-    local tint,tintLabel=Check("Tint filled area",240,-179,function(v)
+    local tint,tintLabel=Check("Tint filled area",16,-layout.tint,function(v)
         if DB.mode=="rising" then DB.tint=v end
     end)
     local radialHint=Label("Radial sweep uses color and opacity below.",16,-178,"GameFontHighlightSmall")
-    Section("Preview", -393)
+    Section("Preview", -layout.preview)
     local previewEnergy=15
     local previewRecords={}
     local previewStart=15
-    local previewSlider,previewLabel=Slider("Energy",16,-411,0,100,1,function(v) if not syncing then previewEnergy=v; if refreshPanel then refreshPanel() end end end)
-    local previewStartSlider,previewStartLabel=Slider("StartEnergy",240,-411,0,100,1,function(v) if not syncing then previewStart=v; if refreshPanel then refreshPanel() end end end)
+    local previewSlider,previewLabel=Slider("Energy",16,-layout.previewSliders,0,100,1,function(v) if not syncing then previewEnergy=v; if refreshPanel then refreshPanel() end end end)
+    local previewStartSlider,previewStartLabel=Slider("StartEnergy",240,-layout.previewSliders,0,100,1,function(v) if not syncing then previewStart=v; if refreshPanel then refreshPanel() end end end)
     for i,entry in ipairs({{45,"Interface\\Icons\\Spell_Shadow_RitualOfSacrifice"},{35,"Interface\\Icons\\Ability_Rogue_Eviscerate"},{25,"Interface\\Icons\\Ability_Kick"}}) do
         local button=CreateFrame("Frame",nil,panel)
-        button:SetSize(48,48); button:SetPoint("TOPLEFT",panel,"TOPLEFT",16+(i-1)*82,-451)
+        button:SetSize(48,48); button:SetPoint("TOPLEFT",panel,"TOPLEFT",16+(i-1)*82,-layout.previewIcons)
         button.icon=button:CreateTexture(nil,"BACKGROUND"); button.icon:SetAllPoints(button); button.icon:SetTexture(entry[2])
         local record=MakeOverlay(button,true)
         record.previewCost=entry[1]; previewRecords[#previewRecords+1]=record
-        Label(tostring(entry[1]).." energy",16+(i-1)*82,-503,"GameFontHighlightSmall")
+        Label(tostring(entry[1]).." energy",16+(i-1)*82,-layout.previewCosts,"GameFontHighlightSmall")
     end
-    Button("Test on bars",16,-525,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
-    Button("Reset defaults",324,-525,120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
+    Button("Test on bars",16,-layout.footer,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
+    Button("Reset defaults",324,-layout.footer,120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
     refreshPanel=function()
         refreshLiveStatus()
         syncing=true

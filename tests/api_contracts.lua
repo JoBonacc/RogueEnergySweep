@@ -220,3 +220,18 @@ assert(src:find("SetControlAvailable(tint,tintLabel,tintAvailable)",1,true))
 assert(src:find("SetControlAvailable(thickness,thicknessLabel,thicknessAvailable)",1,true))
 assert(src:find('if DB.mode=="rising" then DB.tint=v end',1,true))
 print("PASS: context-sensitive options availability and guarded tint changes")
+
+-- Layout contract: controls have their own rows and leave room for slider knobs.
+local layoutCode=section("local OPTION_LAYOUT =","local function CreateOptions")
+local layout=assert(load(layoutCode.."\nreturn OPTION_LAYOUT","layout checks","t",_G))()
+local function sliderBottom(y) return y+layout.sliderOffset+layout.sliderHeight end
+assert(layout.tint-sliderBottom(layout.thickness)>=6)
+assert(layout.progress-(layout.tint+layout.buttonHeight)>=10)
+assert(layout.appearance-(layout.progressStatus+12)>=10)
+assert(layout.preview-sliderBottom(layout.opacity)>=12)
+assert(layout.previewIcons-sliderBottom(layout.previewSliders)>=10)
+assert(layout.previewCosts-(layout.previewIcons+48)>=4)
+assert(layout.footer-(layout.previewCosts+12)>=10)
+assert(src:find('line:SetPoint("LEFT",heading,"RIGHT",12,0)',1,true))
+assert(src:find('Check("Tint filled area",16,-layout.tint',1,true))
+print("PASS: options row separation and heading-aligned dividers")

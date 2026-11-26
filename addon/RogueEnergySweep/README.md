@@ -1,4 +1,4 @@
-# Rogue Energy Sweep v0.10.0 — experimental
+# Rogue Energy Sweep v0.10.1 — experimental
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
