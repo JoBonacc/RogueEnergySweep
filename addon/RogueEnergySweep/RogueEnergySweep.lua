@@ -629,7 +629,7 @@ ClearReady=function(record)
     StopReadyVisual(record)
     record.readyPrevious=nil; record.readySignalSource=nil; record.readyRequested=nil
     record.readyActual=nil; record.readyReason=nil
-    if record.readyGate then pcall(record.readyGate.SetAlpha,record.readyGate,0) end
+    if record.readyGate and record.readyGateActive then pcall(record.readyGate.SetAlpha,record.readyGate,0); record.readyGateActive=false end
 end
 local function ReadyAtlas(texture,atlas)
     if C_Texture and C_Texture.GetAtlasInfo and not C_Texture.GetAtlasInfo(atlas) then error("Missing atlas "..atlas) end
@@ -755,8 +755,14 @@ local function UpdateReady(record,alpha,eligible,preview)
     if record.readyRequested~=effect then
         ClearReady(record); record.readyRequested=effect
     end
-    local signal,source=ReadySignal(record,alpha)
-    local fire=ReadyTransition(record,signal,source)
+    local signal,source,fire
+    if READY_ONESHOT[effect] then
+        signal,source=ReadySignal(record,alpha)
+        fire=ReadyTransition(record,signal,source)
+    else
+        source=IsSecret(alpha) and "native protected alpha" or "public energy"
+        fire=false
+    end
     local desired=ReadyChoice(effect,signal,DB.readyFallback)
     record.readyReason=source
     if desired=="none" then StopReadyVisual(record); record.readyActual="none"; return end
@@ -780,6 +786,7 @@ local function UpdateReady(record,alpha,eligible,preview)
     -- Native alpha is the only protected input; the animation itself is
     -- public and never reads the visibility or alpha back from a widget.
     local ok=pcall(record.readyGate.SetAlpha,record.readyGate,alpha)
+    record.readyGateActive=ok
     if not ok then
         StopReadyVisual(record); record.readyReason="native ready alpha rejected"; record.readyActual="none"; return
     end
@@ -1999,7 +2006,7 @@ end
 local events = CreateFrame("Frame")
 for _, event in ipairs({"ADDON_LOADED","PLAYER_ENTERING_WORLD","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED",
     "ACTIONBAR_SLOT_CHANGED","ACTIONBAR_PAGE_CHANGED","SPELLS_CHANGED","PLAYER_EQUIPMENT_CHANGED",
-    "PLAYER_TALENT_UPDATE","ACTIVE_TALENT_GROUP_CHANGED","UPDATE_SHAPESHIFT_FORM","UPDATE_STEALTH","PLAYER_TARGET_CHANGED","COMBO_TARGET_CHANGED","UNIT_COMBO_POINTS","SPELL_UPDATE_COOLDOWN","ACTIONBAR_UPDATE_COOLDOWN","SPELL_UPDATE_CHARGES"}) do
+    "PLAYER_TALENT_UPDATE","ACTIVE_TALENT_GROUP_CHANGED","UPDATE_SHAPESHIFT_FORM","UPDATE_STEALTH","PLAYER_TARGET_CHANGED","COMBO_TARGET_CHANGED","UNIT_COMBO_POINTS","SPELL_UPDATE_COOLDOWN","ACTIONBAR_UPDATE_COOLDOWN","SPELL_UPDATE_CHARGES","SPELL_UPDATE_USABLE"}) do
     pcall(events.RegisterEvent, events, event)
 end
 for _, event in ipairs({"UNIT_POWER_FREQUENT","UNIT_POWER_UPDATE","UNIT_MAXPOWER","UNIT_AURA","UNIT_SPELLCAST_SUCCEEDED"}) do
@@ -2015,6 +2022,8 @@ events:SetScript("OnEvent", function(_, event, ...)
     end
     if not DB then return end
     if event == "PLAYER_ENTERING_WORLD" then CheckCompatibility(true); CheckBuild(true); RequestScan()
+    elseif event=="SPELL_UPDATE_USABLE" then
+        if DB.enabled and READY_ONESHOT[DB.readyEffect] then RequestUpdate() end
     elseif event=="SPELL_UPDATE_COOLDOWN" or event=="ACTIONBAR_UPDATE_COOLDOWN" or event=="SPELL_UPDATE_CHARGES" then
         if DB.enabled and DB.hideCooldowns then RequestUpdate() end
     elseif event=="PLAYER_TARGET_CHANGED" or event=="COMBO_TARGET_CHANGED" or event=="UNIT_COMBO_POINTS" then

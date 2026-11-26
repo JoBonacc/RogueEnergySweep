@@ -381,3 +381,61 @@ assert(src:find('UI-HUD-ActionBar-Casting-Complete-Glow',1,true))
 assert(src:find('UI-HUD-ActionBar-GCD-Flipbook',1,true))
 assert(src:find('UI-HUD-ActionBar-Proc-Loop-Flipbook',1,true))
 print("PASS: ready curve, public transition and source changes, protected fallback, filter wiring and native asset selection")
+
+-- Exercise the real visual lifecycle with mock native frames/animations.
+local function nativeWidget(parent)
+    local w={parent=parent,shown=false,animations={},scripts={},playCount=0}
+    for _,method in ipairs({"EnableMouse","SetAllPoints","SetFrameLevel","SetPoint","SetHeight","SetWidth","SetTexture","SetAtlas","SetBlendMode","AddMaskTexture","SetVertexColor","SetTarget","SetDuration","SetOrder","SetScaleFrom","SetScaleTo","SetSmoothing","SetFromAlpha","SetToAlpha","SetFlipBookRows","SetFlipBookColumns","SetFlipBookFrames"}) do
+        w[method]=function(self,...) self[method.."Args"]={...} end
+    end
+    function w:GetFrameLevel() return 1 end
+    function w:SetAlpha(v) self.alpha=v end
+    function w:Show() self.shown=true end
+    function w:Hide() self.shown=false end
+    function w:CreateTexture() return nativeWidget(self) end
+    function w:CreateMaskTexture() return nativeWidget(self) end
+    function w:CreateAnimationGroup() return nativeWidget(self) end
+    function w:CreateAnimation(kind) local a=nativeWidget(self); a.kind=kind; self.animations[#self.animations+1]=a; return a end
+    function w:SetScript(name,fn) self.scripts[name]=fn end
+    function w:SetLooping(v) self.looping=v end
+    function w:Play() self.playCount=self.playCount+1 end
+    function w:Stop() self.stopped=true end
+    return w
+end
+local visualEnv=setmetatable({issecretvalue=env.issecretvalue,WHITE="white",
+    READY_ONESHOT={burst=true,flash=true,softflash=true},
+    DB={readyEffect="burst",readyFallback=true,readyOpacity=.7,readyMatchColor=false},
+    CreateFrame=function(_,_,parent) return nativeWidget(parent) end,
+    C_Texture={GetAtlasInfo=function() return {} end},
+    ResolveColor=function() return {.2,.5,1} end}, {__index=_G})
+local visualCode=section("local function IsSecret","local MODES")..section("local function ReadySignal","local function RebuildGroups")
+local updateReady,clearReady=assert(load(visualCode.."\nreturn SafeUpdateReady,ClearReady","ready lifecycle","t",visualEnv))()
+local record={frame=nativeWidget(),comboGate=nativeWidget(),spellID=1752}
+updateReady(record,1,true); assert(not record.readyVisual) -- no initial flash
+updateReady(record,0,true); updateReady(record,1,true)
+local burst=record.readyVisual
+assert(burst and burst.effect=="burst" and burst.anim.playCount==1)
+assert(burst.anim.animations[1].kind=="Scale" and burst.anim.animations[2].kind=="Alpha")
+assert(burst.textures[1].SetAtlasArgs[1]=="UI-HUD-ActionBar-Casting-Complete-Glow")
+assert(record.readyGate.parent==record.comboGate)
+updateReady(record,1,true); assert(burst.anim.playCount==1)
+burst.anim.scripts.OnFinished(); assert(not record.readyVisual and not burst.frame.shown)
+updateReady(record,1,true); assert(burst.anim.playCount==1)
+updateReady(record,0,true); updateReady(record,1,true); assert(burst.anim.playCount==2)
+updateReady(record,1,false); assert(not record.readyVisual and record.readyPrevious==nil and record.readyGate.alpha==0)
+visualEnv.DB.readyEffect="flash"; updateReady(record,secret,true)
+assert(record.readyVisual.effect=="pulse" and record.readyVisual.anim.looping=="BOUNCE" and rawequal(record.readyGate.alpha,secret))
+visualEnv.DB.readyFallback=false; updateReady(record,secret,true); assert(not record.readyVisual)
+visualEnv.DB.readyEffect="proc"; updateReady(record,secret,true)
+assert(record.readyVisual.effect=="proc" and record.readyVisual.anim.looping=="REPEAT")
+local proc=record.readyVisual
+assert(proc.anim.animations[1].SetFlipBookRowsArgs[1]==6 and proc.anim.animations[1].SetFlipBookFramesArgs[1]==30)
+visualEnv.DB.readyEffect="flash"; updateReady(record,0,true); updateReady(record,1,true)
+assert(record.readyVisual.effect=="flash" and record.readyVisual.anim.animations[1].SetFlipBookFramesArgs[1]==22)
+visualEnv.DB.readyEffect="none"; updateReady(record,1,true); assert(not record.readyVisual)
+visualEnv.DB.readyEffect="burst"; visualEnv.C_Texture.GetAtlasInfo=function() return nil end
+local missing={frame=nativeWidget(),comboGate=nativeWidget(),spellID=1752}
+updateReady(missing,0,true); updateReady(missing,1,true)
+assert(missing.readyVisual.effect=="softflash" and missing.readyActual=="softflash" and missing.readyReason:find("artwork fallback",1,true))
+clearReady(missing); assert(not missing.readyVisual)
+print("PASS: actual ready lifecycle, one-shot non-repetition, native flipbooks, protected alpha, filter cleanup and missing-art fallback")
