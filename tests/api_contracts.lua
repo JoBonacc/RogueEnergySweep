@@ -166,3 +166,40 @@ assert(getDB().color=="custom" and hex(resolve())=="#112233")
 getDB().customColor={0/0,1,1}; init(); assert(getDB().color=="amber" and getDB().customColor==nil)
 colorEnv.RogueEnergySweepDB={}; init(); assert(getDB().color=="amber")
 print("PASS: color preset migration, custom RGB and hex, picker live callbacks and cancellation")
+
+-- Target-specific finisher detection and safe independent opacity gate.
+local comboEnv=setmetatable({ENERGY=3,issecretvalue=env.issecretvalue},{__index=_G})
+local comboCode=section("local function IsSecret","local MODES")..section("local FINISHERS","local function Clear(")
+local getCost,getAlpha,applyGate=assert(load(comboCode.."\nreturn GetEnergyCost,TargetComboAlpha,ApplyComboGate","combo mocks","t",comboEnv))()
+comboEnv.C_Spell={GetSpellPowerCost=function() return {{type=3,cost=35},{type=4,cost=5,minCost=1}} end}
+local c,e,readable,finisher=getCost(999); assert(c==35 and e and readable and finisher)
+comboEnv.C_Spell.GetSpellPowerCost=function() return {{type=4,minCost=1,cost=5},{type=3,cost=25}} end
+c,e,readable,finisher=getCost(999); assert(c==25 and finisher)
+comboEnv.C_Spell.GetSpellPowerCost=function() return {{type=3,cost=35}} end
+c,e,readable,finisher=getCost(6760); assert(finisher)
+c,e,readable,finisher=getCost(1752); assert(not finisher)
+comboEnv.C_Spell.GetSpellPowerCost=function() return {{type=3,cost=35},{type=4,minCost=0,cost=5}} end
+c,e,readable,finisher=getCost(999); assert(not finisher)
+local points=0
+comboEnv.UnitExists=function(unit) assert(unit=="target"); return true end
+comboEnv.GetComboPoints=function(unit,target) assert(unit=="player" and target=="target"); return points end
+comboEnv.UnitPower=function() error("must not read generic combo points") end
+assert(getAlpha()==0); points=1; assert(getAlpha()==1); points=5; assert(getAlpha()==1)
+comboEnv.UnitExists=function() return false end; assert(getAlpha()==0)
+comboEnv.UnitExists=function() return true end
+points=secret
+comboEnv.C_CurveUtil={CreateCurve=function() return {AddPoint=function() end,Evaluate=function(_,v) assert(rawequal(v,secret)); return secret end} end}
+local alpha,source=getAlpha(); assert(rawequal(alpha,secret) and source=="target points (native curve)")
+local gate={SetAlpha=function(self,v) self.alpha=v end}
+local fin={finisher=true,comboGate=gate}
+assert(applyGate(fin,alpha,true) and rawequal(gate.alpha,secret))
+assert(applyGate(fin,0,false) and gate.alpha==1)
+fin.finisher=false; assert(applyGate(fin,0,true) and gate.alpha==1)
+fin.finisher=true; assert(applyGate(fin,0,true) and gate.alpha==0)
+gate.SetAlpha=function(self,v) if rawequal(v,secret) then error("rejected") end; self.alpha=v end
+assert(not applyGate(fin,secret,true) and gate.alpha==0)
+comboEnv.GetComboPoints=nil; assert(getAlpha()==0)
+assert(src:find('"PLAYER_TARGET_CHANGED","COMBO_TARGET_CHANGED"',1,true))
+assert(src:find('power=="COMBO_POINTS"',1,true))
+assert(src:find('DB.finisherComboOnly and not demo',1,true))
+print("PASS: finisher detection, target-only combo gate, secret alpha forwarding and fail-closed behavior")

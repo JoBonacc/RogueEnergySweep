@@ -1,4 +1,4 @@
-# Rogue Energy Sweep v0.8.0 — experimental
+# Rogue Energy Sweep v0.9.0 — experimental
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
@@ -12,6 +12,9 @@ Replace the old `RogueEnergySweep` folder under `Interface/AddOns/` with the fol
 
 All four indicators support two progress modes. Energy-based (default) shows the fraction of the ability cost accumulated. Countdown (experimental) starts at zero progress using a post-spend snapshot and fills toward affordability: after spending 45 of 60 energy, the next 45-energy ability progresses from 0% at 15 energy to 50% at 30 energy and disappears at 45. The sweep shows the remaining fraction. Another spend restarts the countdown for affected abilities; a refund advances it. All indicators disappear at affordability. Both modes follow actual energy rather than a fixed time estimate. The options preview has a second slider in countdown mode for post-spend starting energy. The standard cooldown/GCD is not modified. The new options panel has eight color swatches, a native custom RGB color picker with live preview and cancel restoration, opacity (15–100%), indicator thickness (2–8 UI units; linear indicators), optional rising fill tint, combat-only and enable switches, three sample icons with a simulated energy slider, a five-second action-bar test, and reset defaults.
 
+## Finisher filtering
+Enable **Finishers only with combo points on target** to hide energy overlays on finishers unless your current target has at least one combo point. Works independently of style and progress mode. Known ranked finishers and spells with a required combo-point cost are detected; other abilities are unaffected. Target swaps and combo-point events refresh the display. The setting defaults off; the demo and simulated preview ignore this gate. If target-specific combo points cannot be displayed safely, finisher overlays are hidden rather than showing stale points. `/resweep status` reports the gate source and number of detected finishers. Protected-value behavior needs live verification.
+
 ## Commands
 - `/resweep` or `/resweep options`: open options.
 - `/resweep demo`: display 50% progress for five seconds on tracked buttons (out of combat only).
@@ -21,6 +24,7 @@ All four indicators support two progress modes. Energy-based (default) shows the
 - `/resweep color amber|white|cyan|green|red|purple|orange|black` or `/resweep color #RRGGBB`: change color. The legacy black preset uses white in linear styles; a custom RGB color applies exactly to every style. Opacity is separate. If the native picker is unavailable, use the hex command.
 - `/resweep opacity 90`: change opacity.
 - `/resweep thickness 4`: change line/bar thickness.
+- `/resweep finishers on|off`: enable or disable target combo-point filtering (omit argument to toggle).
 - `/resweep combat`: toggle combat-only.
 - `/resweep on` / `/resweep off`: enable or disable.
 - `/resweep rescan`: rediscover action buttons.

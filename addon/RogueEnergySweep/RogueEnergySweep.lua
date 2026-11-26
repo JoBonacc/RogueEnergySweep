@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.8.0 (WoW Forever)
+-- Rogue Energy Sweep 0.9.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -88,6 +88,7 @@ local function InitDB()
     DB = RogueEnergySweepDB
     if type(DB.enabled) ~= "boolean" then DB.enabled = true end
     DB.combatOnly = DB.combatOnly == true
+    DB.finisherComboOnly = DB.finisherComboOnly == true
     if not MODES[DB.mode] or DB.mode == "auto" then DB.mode = "rising" end
     if type(DB.customColor)=="table" then
         DB.customColor=ValidRGB(DB.customColor[1],DB.customColor[2],DB.customColor[3])
@@ -192,6 +193,15 @@ local function GetSpellFromSlot(slot)
     return nil
 end
 
+-- Standard Forever finishers, including their Classic ranks. The power-cost
+-- metadata also identifies other spells that require combo points.
+local FINISHERS = {
+    [2098]=true,[6760]=true,[6761]=true,[6762]=true,[8623]=true,[8624]=true,[11299]=true,[11300]=true,[31016]=true, -- Eviscerate
+    [5171]=true,[6774]=true, -- Slice and Dice
+    [8647]=true,[8649]=true,[8650]=true,[11197]=true,[11198]=true, -- Expose Armor
+    [1943]=true,[8639]=true,[8640]=true,[11273]=true,[11274]=true,[11275]=true, -- Rupture
+    [408]=true,[8643]=true, -- Kidney Shot
+}
 local function GetEnergyCost(spellID)
     if not spellID or not C_Spell or not C_Spell.GetSpellPowerCost then
         return nil, false
@@ -202,6 +212,8 @@ local function GetEnergyCost(spellID)
         return nil, false
     end
 
+    local energyCost,hasEnergy,energyKnown=nil,false,true
+    local finisher=FINISHERS[spellID]==true
     for i = 1, #costs do
         local row = costs[i]
         if not IsSecret(row) and type(row) == "table" then
@@ -214,13 +226,56 @@ local function GetEnergyCost(spellID)
                     cost = SafeNumber(row.cost)
                 end
                 -- Unknown/restricted costs are not free abilities.
-                if cost == nil then return nil, false end
-                return cost, true, true
+                if cost == nil then energyKnown=false
+                elseif energyKnown and not hasEnergy then energyCost,hasEnergy=cost,true end
+            elseif powerType==4 or (not IsSecret(row.name) and row.name=="COMBO_POINTS") then
+                local min=SafeNumber(row.minCost)
+                local cost=SafeNumber(row.cost)
+                if (min and min>0) or (min==nil and cost and cost>0) then finisher=true end
             end
         end
     end
+    if not energyKnown then return nil,false,false,finisher end
+    return energyCost,hasEnergy,true,finisher
+end
 
-    return nil, false, true -- readable list with no energy cost
+-- Forever combo points belong to the current target. Never substitute generic
+-- UnitPower/UnitPowerPercent: those values can refer to the previous target.
+-- Public points can be compared; protected points may only feed a native curve.
+local comboGateCurve
+local function TargetComboAlpha()
+    if type(UnitExists)=="function" then
+        local ok,exists=pcall(UnitExists,"target")
+        if ok and not IsSecret(exists) and exists==false then return 0,"no target" end
+    end
+    if type(GetComboPoints)~="function" then return 0,"target API unavailable" end
+    local ok,points=pcall(GetComboPoints,"player","target")
+    if not ok then return 0,"target API rejected" end
+    local public=SafeNumber(points)
+    if public then return public>0 and 1 or 0,"target points (public)" end
+    if not IsSecret(points) then return 0,"target points unavailable" end
+    local accepted,alpha=pcall(function()
+        if not comboGateCurve then
+            local c=C_CurveUtil.CreateCurve()
+            if c.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then c:SetType(Enum.LuaCurveType.Linear) end
+            c:AddPoint(0,0); c:AddPoint(1,1); c:AddPoint(10,1)
+            comboGateCurve=c
+        end
+        return comboGateCurve:Evaluate(points)
+    end)
+    if accepted and (IsSecret(alpha) or SafeNumber(alpha)) then return alpha,"target points (native curve)" end
+    return 0,"protected target points unavailable"
+end
+
+local function ApplyComboGate(record,alpha,enabled)
+    local value=1
+    if enabled and record.finisher then value=alpha end
+    local ok=pcall(record.comboGate.SetAlpha,record.comboGate,value)
+    if not ok then
+        -- Fail closed for a finisher if the protected alpha is not accepted.
+        pcall(record.comboGate.SetAlpha,record.comboGate,0)
+    end
+    return ok
 end
 
 local function Clear(record)
@@ -280,7 +335,9 @@ end
 
 local function MakeOverlay(button, preview)
     if not preview and overlays[button] then return overlays[button] end
-    local frame = CreateFrame("Frame", nil, button)
+    local gate = CreateFrame("Frame",nil,button)
+    gate:SetAllPoints(button); gate:EnableMouse(false)
+    local frame = CreateFrame("Frame", nil, gate)
     local icon = button.icon or button.Icon
     if not icon or IsSecret(icon) or not pcall(frame.SetAllPoints, frame, icon) then
         frame:ClearAllPoints(); frame:SetAllPoints(button)
@@ -330,7 +387,7 @@ local function MakeOverlay(button, preview)
     edges[2]:SetPoint("TOPRIGHT",frame,"TOPRIGHT",0,0); edges[2]:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",0,0)
     edges[3]:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",0,0); edges[3]:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",0,0)
     edges[4]:SetPoint("TOPLEFT",frame,"TOPLEFT",0,0); edges[4]:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",0,0)
-    local record = {button=button,frame=frame,radial=radial,bar=bar,native=native,track=track,rising=rising,riseTint=tint,line=line,edges=edges}
+    local record = {button=button,frame=frame,comboGate=gate,radial=radial,bar=bar,native=native,track=track,rising=rising,riseTint=tint,line=line,edges=edges}
     if not preview then overlays[button]=record end
     Style(record); Clear(record)
     return record
@@ -364,8 +421,8 @@ local function RegisterButton(button, costs)
     if not spellID then return end
     local entry = costs[spellID]
     if not entry then
-        local cost, hasEnergyCost = GetEnergyCost(spellID)
-        entry = {cost=cost, hasEnergyCost=hasEnergyCost}
+        local cost, hasEnergyCost, _, finisher = GetEnergyCost(spellID)
+        entry = {cost=cost, hasEnergyCost=hasEnergyCost, finisher=finisher}
         costs[spellID] = entry
     end
     if not entry.hasEnergyCost then return end
@@ -374,7 +431,7 @@ local function RegisterButton(button, costs)
         if InCombatLockdown() then rescanPending = true; return end
         record = MakeOverlay(button)
     end
-    record.spellID, record.cost = spellID, entry.cost
+    record.spellID, record.cost, record.finisher = spellID, entry.cost, entry.finisher
     records[#records+1] = record
 end
 
@@ -394,7 +451,7 @@ local BUTTON_PREFIXES = {
 local function RefreshBindings()
     bindingPending = false
     wipe(records)
-    for _, record in pairs(overlays) do record.spellID, record.cost = nil, nil end
+    for _, record in pairs(overlays) do record.spellID, record.cost, record.finisher = nil, nil, nil end
     RefreshMaxEnergy()
     local costs = {}
     for _, button in ipairs(knownButtons) do RegisterButton(button, costs) end
@@ -435,10 +492,11 @@ local function RefreshCosts()
     for _, record in ipairs(records) do
         local entry = costs[record.spellID]
         if not entry then
-            local cost, found = GetEnergyCost(record.spellID)
-            entry = {cost=found and cost or nil}
+            local cost, found, _, finisher = GetEnergyCost(record.spellID)
+            entry = {cost=found and cost or nil,finisher=finisher}
             costs[record.spellID] = entry
         end
+        record.finisher=entry.finisher
         if entry.cost ~= record.cost then record.cost = entry.cost; changed = true end
     end
     if changed then RebuildGroups() end
@@ -616,10 +674,15 @@ local function SetProgress(mode)
     if DB.progress ~= mode then DB.progress=mode; ResetProgress(); for _,record in pairs(overlays) do record.failedGroup=nil; record.failedError=nil end end
 end
 
+local lastComboSource="not evaluated"
 local function Update()
     updatePending = false
     if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); if DB and DB.progress=="countdown" then ResetProgress() end; if refreshLiveStatus then refreshLiveStatus() end; return end
     local publicEnergy,triedPublic = nil,false
+    local comboAlpha=1
+    local gateEnabled=DB.finisherComboOnly and not demo
+    if gateEnabled then comboAlpha,lastComboSource=TargetComboAlpha()
+    else lastComboSource=demo and "demo bypass" or "off" end
     lastSource = "no tracked energy abilities"
     for cost,group in pairs(groups) do
         local fill,deficit,visibility,valid
@@ -651,6 +714,7 @@ local function Update()
         end
         for _,record in ipairs(group.records) do
             record.renderError=nil
+            if not ApplyComboGate(record,comboAlpha,gateEnabled) then lastComboSource="native gate rejected" end
             if valid then
                 if directRange then
                     -- Retry on a new snapshot, style change, or reload, not every power event.
@@ -783,10 +847,13 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.8.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.9.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
+    local finishers=0
+    for _,record in ipairs(records) do if record.finisher and record.cost and record.cost>0 then finishers=finishers+1 end end
+    Say("finisher gate: "..(DB.finisherComboOnly and "on" or "off").." | "..finishers.." finishers | "..lastComboSource)
     for _,record in ipairs(records) do
         if record.cost and record.renderError then Say("spell "..tostring(record.spellID).." / "..DB.mode..": "..record.renderError) end
     end
@@ -825,11 +892,12 @@ local function CreateOptions()
     Label("Track energy readiness directly on action buttons.",16,-42,"GameFontHighlight")
     local enabled=Check("Enable overlays",16,-65,function(v) DB.enabled=v; if v then RequestScan() end end)
     local combat=Check("Only in combat",225,-65,function(v) DB.combatOnly=v end)
-    Label("Indicator style",16,-108)
+    local comboOnly=Check("Finishers only with combo points on target",16,-88,function(v) DB.finisherComboOnly=v end)
+    Label("Indicator style",16,-115)
     local modes={}
     for i,entry in ipairs({{"rising","Rising line"},{"bar","Bottom bar"},{"perimeter","Perimeter"},{"radial","Radial sweep"}}) do
         local key,text=entry[1],entry[2]
-        modes[key]=Button(text,16+(i-1)*110,-130,106,function() DB.mode=key; ApplySettings() end)
+        modes[key]=Button(text,16+(i-1)*110,-135,106,function() DB.mode=key; ApplySettings() end)
     end
     Label("Progress mode",16,-161)
     local progressButtons={}
@@ -911,7 +979,7 @@ local function CreateOptions()
     refreshPanel=function()
         refreshLiveStatus()
         syncing=true
-        enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint)
+        enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint); comboOnly:SetChecked(DB.finisherComboOnly)
         for key,b in pairs(modes) do if key==DB.mode then b:Disable() else b:Enable() end end
         for key,b in pairs(progressButtons) do if key==DB.progress then b:Disable() else b:Enable() end end
         for key,b in pairs(colors) do
@@ -956,7 +1024,7 @@ local function OpenOptions()
     else Say("Settings unavailable; use /resweep help.") end
 end
 local function Help()
-    Say("/resweep options | status | demo | on | off | rescan | combat | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
@@ -976,6 +1044,9 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     elseif cmd == "off" then DB.enabled = false; demo = false; ResetProgress()
     elseif cmd == "rescan" then RequestScan(); Say(InCombatLockdown() and "Rescan deferred until combat ends." or "Rescan requested."); return
     elseif cmd == "combat" then DB.combatOnly = not DB.combatOnly; Say("Combat only: " .. tostring(DB.combatOnly))
+    elseif cmd == "finishers" and (arg=="on" or arg=="off" or arg=="") then
+        if arg=="" then DB.finisherComboOnly=not DB.finisherComboOnly else DB.finisherComboOnly=arg=="on" end
+        Say("Finishers require target combo points: "..tostring(DB.finisherComboOnly))
     elseif cmd == "opacity" and tonumber(arg) then DB.opacity = math.max(0.15, math.min(1.00, tonumber(arg)/100))
     elseif cmd == "color" then
         if COLORS[arg] then DB.color=arg
@@ -992,7 +1063,7 @@ end
 local events = CreateFrame("Frame")
 for _, event in ipairs({"ADDON_LOADED","PLAYER_ENTERING_WORLD","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED",
     "ACTIONBAR_SLOT_CHANGED","ACTIONBAR_PAGE_CHANGED","SPELLS_CHANGED","PLAYER_EQUIPMENT_CHANGED",
-    "PLAYER_TALENT_UPDATE","ACTIVE_TALENT_GROUP_CHANGED","UPDATE_SHAPESHIFT_FORM","UPDATE_STEALTH"}) do
+    "PLAYER_TALENT_UPDATE","ACTIVE_TALENT_GROUP_CHANGED","UPDATE_SHAPESHIFT_FORM","UPDATE_STEALTH","PLAYER_TARGET_CHANGED","COMBO_TARGET_CHANGED","UNIT_COMBO_POINTS"}) do
     pcall(events.RegisterEvent, events, event)
 end
 for _, event in ipairs({"UNIT_POWER_FREQUENT","UNIT_POWER_UPDATE","UNIT_MAXPOWER","UNIT_AURA","UNIT_SPELLCAST_SUCCEEDED"}) do
@@ -1008,11 +1079,14 @@ events:SetScript("OnEvent", function(_, event, ...)
     end
     if not DB then return end
     if event == "PLAYER_ENTERING_WORLD" then CheckCompatibility(true); CheckBuild(true); RequestScan()
+    elseif event=="PLAYER_TARGET_CHANGED" or event=="COMBO_TARGET_CHANGED" or event=="UNIT_COMBO_POINTS" then
+        if DB.enabled and DB.finisherComboOnly then RequestUpdate() end
     elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_POWER_UPDATE" then
         local unit, power = ...
-        if DB.enabled and unit == "player" and not IsSecret(power) and power == "ENERGY" then RequestUpdate() end
+        if DB.enabled and not IsSecret(unit) and unit == "player" and not IsSecret(power) and (power == "ENERGY" or (DB.finisherComboOnly and power=="COMBO_POINTS")) then RequestUpdate() end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellID = ...
+        if DB.enabled and DB.finisherComboOnly and not IsSecret(unit) and unit=="player" then RequestUpdate() end
         if DB.enabled and DB.progress=="countdown" and not IsSecret(unit) and unit=="player" then
             local id=SafeNumber(spellID)
             local cost, hasEnergy, readable=GetEnergyCost(id)

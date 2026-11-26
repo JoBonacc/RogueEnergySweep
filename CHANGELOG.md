@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.0
+- Optional target combo-point filter for finisher overlays across all styles and progress modes. Defaults off; demo and simulated preview bypass it.
+- Detect ranked finishers and required combo-point power costs; refresh on target and combo-point changes. Use target-specific API, fail closed when unavailable, and report gate source in status.
+- Add mocked finisher detection, public/protected combo gate and event coverage. Live-client verification pending.
+
 ## v0.8.0
 - Add eight named color swatches and a native custom RGB color picker, with live action-bar and options previews, cancel restoration and saved custom color.
 - Support exact hex colors through `/resweep color #RRGGBB`; preserve existing presets, default gold and the legacy black-preset behavior. Opacity remains separate.
