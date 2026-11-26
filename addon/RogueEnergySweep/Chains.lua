@@ -286,7 +286,7 @@ function C.Sync(records,max)
                 local e=catalog[r.spellID]
                 if e and r.cost and r.cost>0 and not api.excluded(r) then
                     local ok,err=pcall(Setup,r,e)
-                    if not ok then errorText=tostring(err); Clear(r) end
+                    if not ok then errorText=tostring(err); if tracked[r] then tracked[r].count=0 end; Clear(r) end
                 end
             end
         end
@@ -335,7 +335,11 @@ function C.Command(arg)
     if arg=="on" then cfg.enabled=true
     elseif arg=="off" then cfg.enabled=false
     elseif arg=="kick" then
-        for _,e in ipairs(ordered) do if e.name=="Kick" then cfg.globalFollow[e.id]="warning"; cfg.enabled=true; signature=nil; return true end end
+        for _,e in ipairs(ordered) do if e.name=="Kick" then
+            local count=0; for _ in pairs(cfg.globalFollow) do count=count+1 end
+            if count>=3 and not cfg.globalFollow[e.id] then return false end
+            cfg.globalFollow[e.id]="warning"; cfg.enabled=true; signature=nil; return true
+        end end
         return false
     elseif arg=="minimal" or arg=="builders" or arg=="pvp" or arg=="finishers" or arg=="custom" then cfg.template=arg; cfg.rules={}; cfg.enabled=true
     else return false end
@@ -345,7 +349,7 @@ function C.Open()
     if not cfg then return end
     if not panel then
         panel=CreateFrame("Frame","RogueEnergySweepChainsOptions",UIParent,"BasicFrameTemplateWithInset")
-        panel:SetSize(528,532); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
+        panel:SetSize(528,554); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
         if panel.TitleText then panel.TitleText:SetText("Ability Chains") end
         if UISpecialFrames then table.insert(UISpecialFrames,panel:GetName()) end
         local function Text(t,x,y)
@@ -426,7 +430,7 @@ function C.Open()
         Button("Next targets",402,-446,105,function() targetPage=targetPage+1; refresh() end)
         Text("+ = affordable afterward; ! = cannot afford afterward (energy only).",16,-480)
         Text("Uses assumed GCD regeneration; ignores target cooldowns and combo changes.",16,-500)
-        Button("Done",418,-502,90,function() panel:Hide() end)
+        Button("Done",418,-523,90,function() panel:Hide() end)
         refresh=function()
             syncing=true
             enabled:SetChecked(cfg.enabled); fraction:SetChecked(cfg.fraction); hide:SetChecked(cfg.hideInactive); pulseWarnings:SetChecked(cfg.pulseWarnings)

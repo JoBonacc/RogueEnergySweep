@@ -647,3 +647,63 @@ assert(tracker.Sync(allArsenal,100)); assert(tracker.Begin(false)); tracker.Fini
 assert(tracker.Status():find("1 abilities",1,true))
 tracker.Command("off"); tracker.Sync(allArsenal,100); assert(not tracker.Begin(false))
 print("PASS: Arsenal shared thresholds/palette, utility defaults, all styles/orientations, protected fallback, public counts, selection and disabled lifecycle")
+
+-- Warning windows (half-energy transitions match existing native ready curves).
+local wc=chains.BuildWarningCurve(45,60,100)
+near(eval(wc,.44),0); near(eval(wc,.45),1); near(eval(wc,.55),1); near(eval(wc,.59),1); near(eval(wc,.60),0); near(eval(wc,1),0)
+wc=chains.BuildWarningCurve(60,110,100)
+near(eval(wc,.59),0); near(eval(wc,.60),1); near(eval(wc,1),1)
+wc=chains.BuildWarningCurve(45,45,100); near(eval(wc,.45),0); near(eval(wc,1),0)
+local warnNS={}
+local warningFrames={}
+local energyValue=55
+local warningEnv=setmetatable({C_CurveUtil=env.C_CurveUtil,
+    C_Spell={GetSpellInfo=function(id) return {name=({[1]="Sinister Strike",[2]="Backstab",[3]="Kick",[4]="Gouge"})[id]} end},
+    CreateFrame=function(kind,name,parent)
+        local w=trackerWidget(parent,kind,name)
+        function w:SetOrientation(v) self.orientation=v end
+        function w:CreateAnimationGroup()
+            local g={plays=0,stops=0}; function g:SetLooping() end
+            function g:CreateAnimation() return {SetFromAlpha=function() end,SetToAlpha=function() end,SetDuration=function() end} end
+            function g:Play() self.plays=self.plays+1 end; function g:Stop() self.stops=self.stops+1 end
+            self.animation=g; return g
+        end
+        warningFrames[#warningFrames+1]=w; return w
+    end},{__index=_G})
+assert(loadfile("addon/RogueEnergySweep/Chains.lua","t",warningEnv))("RogueEnergySweep",warnNS)
+local warnings=warnNS.Chains
+warnings.Configure({safe=function(v) if type(v)=="number" then return v end end,secret=env.issecretvalue,
+    excluded=function() return false end,evaluate=function(c) if rawequal(energyValue,secret) then return secret,true end; return eval(c,energyValue/100),true end})
+local warningDB={chains={enabled=true,template="custom",globalFollow={[3]="warning"},
+    rules={[1]={repeatPips=false,follow={2,3,4},conditions={[2]="warning"}}}}}
+warnings.Init(warningDB)
+local function Source(id,cost) return {spellID=id,cost=cost,category="builder",comboGate=trackerWidget(nil,"Frame"),frame=trackerWidget(nil,"Frame")} end
+local wa,wb,wk,wg=Source(1,45),Source(2,60),Source(3,25),Source(4,45)
+local wr={wa,wb,wk,wg}
+warnings.Sync(wr,100)
+local function Bars(r)
+    local out={}
+    for _,w in ipairs(warningFrames) do if w.kind=="StatusBar" and w.parent.parent.parent==r.comboGate and w.parent.shown then out[#out+1]=w end end
+    return out
+end
+warnings.Begin(); warnings.Update(wa,true)
+local wbars=Bars(wa)
+assert(#wbars==3)
+assert(wbars[1].SetStatusBarTextureArgs[1]:find("ChainWarning",1,true))
+assert(wbars[2].SetStatusBarTextureArgs[1]:find("ChainWarning",1,true))
+assert(wbars[3].SetStatusBarTextureArgs[1]:find("ChainDiamond",1,true))
+near(wbars[1].parent.alpha,1); near(wbars[2].parent.alpha,1); near(wbars[3].SetValueArgs[1],0)
+assert(wbars[1].animation.plays==1)
+energyValue=60; warnings.Begin(); warnings.Update(wa,true); near(wbars[1].parent.alpha,0); near(wbars[2].parent.alpha,1)
+energyValue=44; warnings.Begin(); warnings.Update(wa,true); near(wbars[1].parent.alpha,0); near(wbars[2].parent.alpha,0)
+energyValue=secret; warnings.Begin(); warnings.Update(wa,true)
+assert(rawequal(wbars[1].parent.alpha,secret) and wbars[1].SetValueArgs[1]==1)
+assert(wbars[1].animation.plays==1)
+warnings.Update(wa,false); assert(not wbars[1].parent.parent.shown and wbars[1].animation.stops==1)
+assert(#Bars(wk)==0,"reserved ability itself must not get its own global warning")
+warnings.Command("minimal"); assert(warningDB.chains.globalFollow[3]=="warning")
+warnings.Sync(wr,100); warnings.Begin(); warnings.Update(wb,true)
+assert(#Bars(wb)>=1)
+warnings.Command("off"); warnings.Sync(wr,100); warnings.Update(wb,true)
+assert(warnings.Status():find("last error none",1,true),warnings.Status())
+print("PASS: warning energy windows, global precedence, duplicate suppression, local legacy opportunity, protected alpha, pulse lifecycle and template persistence")
