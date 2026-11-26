@@ -648,6 +648,7 @@ assert(tracker.Status():find("1 abilities",1,true))
 tracker.Command("off"); tracker.Sync(allArsenal,100); assert(not tracker.Begin(false))
 print("PASS: Arsenal shared thresholds/palette, utility defaults, all styles/orientations, protected fallback, public counts, selection and disabled lifecycle")
 
+;(function()
 -- Warning windows (half-energy transitions match existing native ready curves).
 local wc=chains.BuildWarningCurve(45,60,100)
 near(eval(wc,.44),0); near(eval(wc,.45),1); near(eval(wc,.55),1); near(eval(wc,.59),1); near(eval(wc,.60),0); near(eval(wc,1),0)
@@ -707,3 +708,5 @@ assert(#Bars(wb)>=1)
 warnings.Command("off"); warnings.Sync(wr,100); warnings.Update(wb,true)
 assert(warnings.Status():find("last error none",1,true),warnings.Status())
 print("PASS: warning energy windows, global precedence, duplicate suppression, local legacy opportunity, protected alpha, pulse lifecycle and template persistence")
+
+end)()
