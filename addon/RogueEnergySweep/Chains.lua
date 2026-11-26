@@ -29,10 +29,10 @@ end
 local function FollowThreshold(first,next,regen)
     return math.max(first,first+next-regen)
 end
-local function GetColor(id)
+local function GetColor(id,name)
     local index=cfg.colors[id]
     if type(index)~="number" or not palette[index] then
-        local e=catalog[id]; local name=e and e.name or ""
+        local e=catalog[id]; name=name or (e and e.name) or ""
         local defaults={["Sinister Strike"]=1,Backstab=2,Gouge=3,Eviscerate=4,Kick=5}
         index=defaults[name] or ((id%#palette)+1)
     end
@@ -81,9 +81,7 @@ local function EditRule(e)
     for _,id in ipairs(r.follow) do copy.follow[#copy.follow+1]=id end
     cfg.rules[e.id]=copy; return copy
 end
-local function Curve(lo,hi,partial)
-    local key=lo..":"..hi..":"..tostring(partial)
-    if curves[key]~=nil then return curves[key] or nil,key end
+local function BuildPipCurve(lo,hi,partial,maximum)
     local ok,c=pcall(function()
         local curve=C_CurveUtil.CreateCurve()
         if curve.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then curve:SetType(Enum.LuaCurveType.Linear) end
@@ -91,14 +89,19 @@ local function Curve(lo,hi,partial)
         local function Value(e)
             return math.max(0,math.min(1,(e-start)/math.max(.001,hi-start)))
         end
-        local points={0,maxEnergy}
-        if start>0 and start<maxEnergy then points[#points+1]=start end
-        if hi>0 and hi<maxEnergy then points[#points+1]=hi end
+        local points={0,maximum}
+        if start>0 and start<maximum then points[#points+1]=start end
+        if hi>0 and hi<maximum then points[#points+1]=hi end
         table.sort(points)
-        for _,e in ipairs(points) do curve:AddPoint(e/maxEnergy,Value(e)) end
+        for _,e in ipairs(points) do curve:AddPoint(e/maximum,Value(e)) end
         return curve
     end)
-    curves[key]=ok and c or false
+    return ok and c or nil
+end
+C.BuildPipCurve=BuildPipCurve
+local function Curve(lo,hi,partial)
+    local key=lo..":"..hi..":"..tostring(partial)
+    if curves[key]==nil then curves[key]=BuildPipCurve(lo,hi,partial,maxEnergy) or false end
     return curves[key] or nil,key
 end
 local function NewPip(parent)
@@ -114,19 +117,34 @@ local function Clear(record)
 end
 C.Clear=Clear
 function C.Hide() for _,r in pairs(tracked) do r.frame:Hide() end end
+local function RepeatDefinitions(id,cost,maximum,limit,regen,fraction)
+    local defs={}; local previous=0
+    for n=1,limit do
+        local threshold=RepeatThreshold(cost,n,regen)
+        if threshold>maximum and (not fraction or previous>=maximum) then break end
+        defs[#defs+1]={lo=previous,hi=threshold,partial=fraction and threshold>previous,kind="repeat",id=id,n=n}
+        previous=threshold
+        if threshold>maximum then break end
+    end
+    return defs
+end
+C.RepeatDefinitions=RepeatDefinitions
+-- The standalone view shares the exact palette, budget and optional partial
+-- pip semantics even when action-bar Chains is disabled. No dependency on
+-- the current action page for manually selected tracker abilities.
+function C.ArsenalSpec(entry,maximum,allRepeats)
+    local id=entry.spellID
+    local color,index=GetColor(id,entry.name)
+    local rule=cfg.rules[id]
+    local repeatEnabled=entry.category=="builder" and not entry.finisher
+    if type(rule)=="table" then repeatEnabled=rule.repeatPips==true end
+    local limit=(allRepeats or repeatEnabled) and cfg.maxPips or 1
+    return {color=color,colorIndex=index,limit=limit,regen=cfg.regen,fraction=cfg.fraction,hideInactive=cfg.hideInactive,
+        defs=RepeatDefinitions(id,entry.cost,maximum,limit,cfg.regen,cfg.fraction)}
+end
 local function Setup(record,entry)
     local rule=Rule(entry)
-    local defs={}
-    local previous=0
-    if rule.repeatPips then
-        for n=1,cfg.maxPips do
-            local threshold=RepeatThreshold(entry.cost,n,cfg.regen)
-            if threshold>maxEnergy and (not cfg.fraction or previous>=maxEnergy) then break end
-            defs[#defs+1]={lo=previous,hi=threshold,partial=cfg.fraction,kind="repeat",id=entry.id,n=n}
-            previous=threshold
-            if threshold>maxEnergy then break end
-        end
-    end
+    local defs=rule.repeatPips and RepeatDefinitions(entry.id,entry.cost,maxEnergy,cfg.maxPips,cfg.regen,cfg.fraction) or {}
     local count,seen=0,{}
     for _,id in ipairs(rule.follow) do
         local e=catalog[id]

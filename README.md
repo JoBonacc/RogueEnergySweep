@@ -47,3 +47,5 @@ Five movable layouts: a shared energy dial, stacked bars, grouped icons, freefor
 Optional Ability Chains pips visualize repeat and alternate follow-up energy budgets. Experimental GCD-aware readiness uses public timing only; falls back to actual energy.
 
 Energy Breakpoints adds four icon-free shared resource views: segmented bar, staircase, threshold lights and segmented arc. Select the tracked spells to control the unique thresholds.
+
+Energy Arsenal adds movable, color-coded alternative cast budgets: circles, diamonds, rectangular charges or numeric counts (native pip fallback when protected), horizontal or vertical. Reuses Ability Chains settings and tracker selection.

@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.18.0
+- Add Energy Arsenal, a movable standalone tracker layout displaying alternative repeat-cast budgets as colored circles, diamonds, rectangular charges or public numeric counts (native pip fallback if protected). Horizontal rows or vertical stacks; optional icons, names and costs.
+- Reuse Ability Chains' palette, repeat definitions, native curves, partial fills, hide-inactive preference, repeat cap and assumed energy per GCD even with action-button pips disabled. Use the existing tracker ability picker and category/ability exclusions. Non-builders default to one pip unless configured or all-repeats is enabled. Energy-only estimates ignore cooldown/combo/positional constraints; all rows spend the same shared pool.
+
 ## v0.17.0
 - Add four icon-free Energy Breakpoints layouts: Segments, Staircase, Lights and Arc. Unique public ability costs determine the stationary thresholds; current energy fills native widgets.
 - Add optional Ability Chains repeat and follow-up pips with templates, per-ability rules and colors, partial repeat progress, size/spacing/opacity/offset settings, and configurable assumed energy per GCD.

@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.17.0 (WoW Forever)
+-- Rogue Energy Sweep 0.18.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...
@@ -1362,7 +1362,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.17.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.18.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -1414,7 +1414,7 @@ local function DiagnosticReport()
         for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
     end
     local lines={
-        "Rogue Energy Sweep v0.17.0 diagnostic report",
+        "Rogue Energy Sweep v0.18.0 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),

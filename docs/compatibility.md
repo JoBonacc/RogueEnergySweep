@@ -51,3 +51,6 @@ Only after all relevant checks pass, record build, addon version, date, client c
 ## v0.17.0 checklist
 - [ ] Configure repeat and follow-up pips, check colors, partial fills, templates, cap, placement, talent changes, and energy-only predictions. Test GCD projection with public and protected timing, off-GCD spells, no GCD, and cooldown/combo filters. Inspect diagnostic paths.
 - [ ] Test all four breakpoint layouts, duplicate/talent-adjusted costs, manual selection, protected energy, labels, arc alignment, stable markers during cooldowns/finishers, and tracker GCD projection.
+
+## v0.18.0 Arsenal checklist
+- [ ] Test all four Arsenal styles in both orientations, with icons/names/costs hidden or shown. Change color and repeat settings in Ability Chains with action-button pips disabled. Verify manual selection, talent cost changes, one-pip utility defaults, all-repeat option, count fallback in combat, stable placement and click-through. Verify shared energy semantics and no Lua/taint errors.

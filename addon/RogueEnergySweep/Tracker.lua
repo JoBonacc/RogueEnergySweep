@@ -10,7 +10,10 @@ local layoutOK=false
 local WHITE="Interface\\Buttons\\WHITE8X8"
 local DIAL="Interface\\AddOns\\RogueEnergySweep\\TrackerDial"
 local RING="Interface\\AddOns\\RogueEnergySweep\\TrackerRing"
-local layouts={dial=true,bars=true,icons=true,freeform=true,rings=true,segments=true,staircase=true,lights=true,arc=true}
+local layouts={dial=true,bars=true,icons=true,freeform=true,rings=true,segments=true,staircase=true,lights=true,arc=true,arsenal=true}
+local arsenalStyles={circle=true,diamond=true,charge=true,count=true}
+local arsenalFrame,arsenalPool,arsenalRows=nil,{},{}
+local CIRCLE="Interface\\AddOns\\RogueEnergySweep\\ChainCircle"
 local breakpointLayouts={segments=true,staircase=true,lights=true,arc=true}
 local breakpointFrame,breakpointPool,breakpointRows,breakpointCurve=nil,{}, {},nil
 local DIAMOND="Interface\\AddOns\\RogueEnergySweep\\ChainDiamond"
@@ -35,6 +38,8 @@ local function Normalize(c)
     c.x=number(c.x,0,-4000,4000); c.y=number(c.y,-180,-4000,4000)
     c.locked=c.locked~=false; c.auto=c.auto~=false; c.vertical=c.vertical==true
     c.showNames=c.showNames~=false; c.showCosts=c.showCosts~=false
+    c.arsenalStyle=arsenalStyles[c.arsenalStyle] and c.arsenalStyle or "circle"
+    c.arsenalIcons=c.arsenalIcons~=false; c.arsenalAllRepeats=c.arsenalAllRepeats==true
     c.hideReady=c.hideReady==true; c.readyEffects=c.readyEffects~=false
     c.selected=type(c.selected)=="table" and c.selected or {}
     c.positions=type(c.positions)=="table" and c.positions or {}
@@ -362,11 +367,184 @@ local function UpdateBreakpoints(demo)
     end
     source=ok and "native breakpoint fill" or "breakpoint energy unavailable"
 end
+-- Arsenal has no secure buttons, no hover dependency and no secret-value
+-- comparisons. Each row is an independent *alternative* use of the shared pool.
+local function ArsenalRow(index)
+    local row=arsenalPool[index]
+    if row then return row end
+    local frame=Frame(arsenalFrame)
+    local icon=Texture(frame,WHITE,"ARTWORK")
+    local name=Label(frame,"")
+    local cost=Label(frame,"")
+    local count=Label(frame,"","GameFontNormalLarge")
+    row={frame=frame,icon=icon,name=name,costLabel=cost,count=count,pips={}}
+    arsenalPool[index]=row
+    return row
+end
+local function ArsenalPip(row,index)
+    local pip=row.pips[index]
+    if pip then return pip end
+    local frame=Frame(row.frame)
+    local track=Texture(frame,WHITE,"BACKGROUND"); track:SetAllPoints(frame)
+    local bar=Bar(frame); bar:SetAllPoints(frame)
+    pip={frame=frame,track=track,bar=bar}
+    row.pips[index]=pip
+    return pip
+end
+local function SetupArsenal(entries)
+    if not ns.Chains or not ns.Chains.ArsenalSpec then error("Ability Chains module unavailable") end
+    if not arsenalFrame then arsenalFrame=Frame(root) end
+    arsenalFrame:ClearAllPoints(); arsenalFrame:SetAllPoints(root)
+    for _,row in ipairs(arsenalPool) do row.frame:Hide() end
+    arsenalRows={}
+    local style=cfg.arsenalStyle
+    local vertical=cfg.vertical
+    local pipSize=math.max(10,math.floor(cfg.iconSize*.48))
+    local pipW=style=="charge" and math.floor(pipSize*1.65) or pipSize
+    local pipH=pipSize
+    local pipGap=math.max(2,math.floor(cfg.spacing*.5))
+    local stepX=pipW+pipGap
+    local stepY=pipH+pipGap
+    local iconSize=math.max(16,math.floor(cfg.iconSize*.7))
+    local labelW=cfg.showNames and 146 or (cfg.showCosts and 42 or 0)
+    local specs={}
+    local maxSlots=1
+    for i,e in ipairs(entries) do
+        local spec=ns.Chains.ArsenalSpec(e,maximum,cfg.arsenalAllRepeats)
+        specs[i]=spec
+        maxSlots=math.max(maxSlots,#spec.defs)
+    end
+    local pipAreaW=math.max(pipW,maxSlots*stepX-pipGap)
+    local pipAreaH=math.max(pipH,maxSlots*stepY-pipGap)
+    local prefix=(cfg.arsenalIcons and iconSize+5 or 0)+labelW
+    local w,h,cellW,cellH,columns
+    if vertical then
+        cellW=math.max(pipW+6,cfg.arsenalIcons and iconSize+6 or 0,cfg.showNames and 108 or 36)
+        cellH=pipAreaH+(cfg.arsenalIcons and iconSize+5 or 0)+(cfg.showNames and 14 or 0)+(cfg.showCosts and 13 or 0)+6
+        columns=math.max(1,math.min(5,#entries))
+        w=columns*(cellW+cfg.spacing)-cfg.spacing
+        h=math.max(1,math.ceil(#entries/columns))*(cellH+cfg.spacing)-cfg.spacing
+    else
+        cellW=prefix+pipAreaW+4
+        cellH=math.max(pipH,cfg.arsenalIcons and iconSize or 0,16)
+        w=cellW; h=math.max(1,#entries)*(cellH+cfg.spacing)-cfg.spacing
+    end
+    root:SetSize(math.max(1,w),math.max(1,h))
+    local curveCache={}
+    local function Curve(lo,hi,partial)
+        local key=lo..":"..hi..":"..tostring(partial)
+        if curveCache[key]==nil then curveCache[key]=ns.Chains.BuildPipCurve(lo,hi,partial,maximum) or false end
+        return curveCache[key] or nil,key
+    end
+    for i,e in ipairs(entries) do
+        local row=ArsenalRow(i)
+        local spec=specs[i]
+        row.defs=spec.defs; row.spec=spec; row.cost=e.cost
+        row.frame:ClearAllPoints(); row.frame:SetSize(cellW,cellH)
+        row.icon:ClearAllPoints(); row.name:ClearAllPoints(); row.costLabel:ClearAllPoints(); row.count:ClearAllPoints()
+        row.icon:SetSize(iconSize,iconSize); row.icon:SetTexture(e.icon)
+        row.name:SetText(e.name); row.costLabel:SetText(tostring(e.cost))
+        local r,g,b=unpack(spec.color)
+        row.name:SetTextColor(r,g,b,1)
+        row.costLabel:SetTextColor(r,g,b,1)
+        row.count:SetTextColor(r,g,b,cfg.opacity)
+        row.count:SetText(""); row.count:Hide()
+        if vertical then
+            local col=(i-1)%columns; local line=math.floor((i-1)/columns)
+            row.frame:SetPoint("TOPLEFT",arsenalFrame,"TOPLEFT",col*(cellW+cfg.spacing),-line*(cellH+cfg.spacing))
+            row.icon:SetPoint("TOP",row.frame,"TOP",0,0)
+            local labelY=-(cfg.arsenalIcons and iconSize+5 or 0)
+            row.name:SetPoint("TOP",row.frame,"TOP",0,labelY)
+            row.costLabel:SetPoint("TOP",row.frame,"TOP",0,labelY-(cfg.showNames and 14 or 0))
+            row.count:SetPoint("CENTER",row.frame,"BOTTOM",0,pipAreaH/2)
+        else
+            row.frame:SetPoint("TOPLEFT",arsenalFrame,"TOPLEFT",0,-(i-1)*(cellH+cfg.spacing))
+            row.icon:SetPoint("LEFT",row.frame,"LEFT")
+            local labelX=cfg.arsenalIcons and iconSize+5 or 0
+            row.name:SetPoint("LEFT",row.frame,"LEFT",labelX,0)
+            row.name:SetWidth(cfg.showCosts and 108 or 142)
+            if row.name.SetJustifyH then row.name:SetJustifyH("LEFT") end
+            row.costLabel:SetPoint("LEFT",row.frame,"LEFT",labelX+(cfg.showNames and 110 or 0),0)
+            row.count:SetPoint("LEFT",row.frame,"LEFT",prefix+4,0)
+        end
+        row.icon:SetShown(cfg.arsenalIcons); row.name:SetShown(cfg.showNames); row.costLabel:SetShown(cfg.showCosts)
+        for j,d in ipairs(spec.defs) do
+            local pip=ArsenalPip(row,j)
+            local texture=style=="diamond" and DIAMOND or (style=="charge" and WHITE or CIRCLE)
+            pip.frame:ClearAllPoints(); pip.frame:SetSize(pipW,pipH)
+            if vertical then pip.frame:SetPoint("BOTTOM",row.frame,"BOTTOM",0,3+(j-1)*stepY)
+            else pip.frame:SetPoint("LEFT",row.frame,"LEFT",prefix+(j-1)*stepX,0) end
+            pip.track:SetTexture(texture); pip.track:SetVertexColor(r*.28,g*.28,b*.28,.8)
+            pip.bar:SetStatusBarTexture(texture)
+            if pip.bar.SetOrientation then pip.bar:SetOrientation(style=="charge" and "HORIZONTAL" or "VERTICAL") end
+            pip.bar:SetStatusBarColor(r,g,b,cfg.opacity)
+            pip.curve,pip.key=Curve(d.lo,d.hi,d.partial)
+            pip.alphaCurve,pip.alphaKey=Curve(0,d.partial and math.min(d.hi,d.lo+.5) or d.hi,false)
+            pip.bar:SetValue(0); pip.frame:SetAlpha(1); pip.frame:Show()
+        end
+        for j=#spec.defs+1,#row.pips do row.pips[j].frame:Hide() end
+        row.frame:Show(); arsenalRows[#arsenalRows+1]=row
+    end
+    arsenalFrame:Show()
+end
+local function UpdateArsenal(demo)
+    local raw
+    if demo then raw=maximum*.5
+    elseif type(UnitPower)=="function" then
+        local ok,v=pcall(UnitPower,"player",Enum and Enum.PowerType and Enum.PowerType.Energy or 3)
+        if ok then raw=api.safe(v) end
+    end
+    local countStyle=cfg.arsenalStyle=="count" and raw~=nil
+    local samples={}
+    local function Sample(curve,key)
+        if not curve then return nil,false end
+        local v=samples[key]
+        if not v then local value,ok=api.evaluate(curve); v={value=value,ok=ok}; samples[key]=v end
+        return v.value,v.ok
+    end
+    local function PublicFill(d,energy)
+        if not d.partial then return energy>=d.hi and 1 or 0 end
+        return math.max(0,math.min(1,(energy-d.lo)/math.max(.001,d.hi-d.lo)))
+    end
+    local available=true
+    for _,row in ipairs(arsenalRows) do
+        if countStyle then
+            local count=0
+            for _,d in ipairs(row.defs) do if raw>=d.hi then count=count+1 end end
+            row.count:SetText(tostring(count)); row.count:Show()
+            for _,p in ipairs(row.pips) do p.frame:Hide() end
+        else
+            row.count:Hide()
+            for j,d in ipairs(row.defs) do
+                local p=row.pips[j]
+                local value,ok
+                if raw~=nil then value,ok=PublicFill(d,raw),true
+                else value,ok=Sample(p.curve,p.key) end
+                if ok and pcall(p.bar.SetValue,p.bar,value) then
+                    local alpha,valid=1,true
+                    if row.spec.hideInactive then
+                        if raw~=nil then alpha=PublicFill(d,raw)>0 and 1 or 0
+                        else alpha,valid=Sample(p.alphaCurve,p.alphaKey) end
+                    end
+                    if valid and pcall(p.frame.SetAlpha,p.frame,alpha) then p.frame:Show() else p.frame:Hide(); available=false end
+                else p.frame:Hide(); available=false end
+            end
+        end
+    end
+    if countStyle then source="public arsenal counts"
+    elseif cfg.arsenalStyle=="count" then source=available and "protected counts: native pip fallback" or "arsenal unavailable"
+    else source=available and (raw~=nil and "public arsenal pips" or "native arsenal pips") or "arsenal partial/unavailable" end
+end
 local function Layout(entries)
     EnsureRoot()
     root:SetScale(cfg.scale); PositionRoot()
     if dial then dial.frame:Hide() end
     if breakpointFrame then breakpointFrame:Hide() end
+    if arsenalFrame then arsenalFrame:Hide() end
+    if cfg.layout=="arsenal" then
+        for _,row in ipairs(pool) do ClearRow(row) end
+        SetupArsenal(entries); SetLocked(); return
+    end
     if breakpointLayouts[cfg.layout] then
         for _,row in ipairs(pool) do ClearRow(row) end
         SetupBreakpoints(entries); SetLocked(); return
@@ -472,6 +650,15 @@ function T.Sync(records,maxEnergy)
     local entries=cfg.enabled and SortedEntries(catalog,cfg.selected,cfg.auto,api.excluded) or {}
     local bits={tostring(cfg.enabled),cfg.layout,cfg.iconMode,cfg.color,cfg.opacity,cfg.scale,cfg.iconSize,cfg.barWidth,cfg.barHeight,cfg.spacing,tostring(cfg.vertical),tostring(cfg.showNames),tostring(cfg.showCosts),tostring(cfg.readyEffects),tostring(maximum)}
     for _,e in ipairs(entries) do bits[#bits+1]=e.spellID..":"..e.cost..":"..tostring(e.finisher)..":"..tostring(e.category) end
+    if cfg.layout=="arsenal" then
+        bits[#bits+1]=cfg.arsenalStyle; bits[#bits+1]=tostring(cfg.arsenalIcons); bits[#bits+1]=tostring(cfg.arsenalAllRepeats)
+        if ns.Chains and ns.Chains.ArsenalSpec then
+            for _,e in ipairs(entries) do
+                local spec=ns.Chains.ArsenalSpec(e,maximum,cfg.arsenalAllRepeats)
+                bits[#bits+1]=table.concat({spec.colorIndex,spec.limit,spec.regen,tostring(spec.fraction),tostring(spec.hideInactive)},":")
+            end
+        end
+    end
     local key=table.concat(bits,"|")
     if signature==key then SetLocked(); if refresh and panel:IsShown() then refresh() end; return false end
     signature=key; T.Hide(); rows={}; byCost={}; costs={}; layoutOK=false
@@ -485,7 +672,7 @@ function T.Sync(records,maxEnergy)
 end
 function T.Costs() return costs end
 function T.Begin(demo)
-    if not cfg or not cfg.enabled or not root or not layoutOK or (#rows==0 and cfg.layout~="dial" and not breakpointLayouts[cfg.layout]) then T.Hide(); return false end
+    if not cfg or not cfg.enabled or not root or not layoutOK or (#rows==0 and cfg.layout~="dial" and not breakpointLayouts[cfg.layout] and not (cfg.layout=="arsenal" and #arsenalRows>0)) then T.Hide(); return false end
     active=true; root:Show(); return true
 end
 function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,comboEnabled,cooldowns,cooldownEnabled,demo)
@@ -527,6 +714,11 @@ function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,com
     end
 end
 function T.Finish(demo)
+    if cfg.layout=="arsenal" then
+        local ok,err=pcall(UpdateArsenal,demo)
+        if not ok then lastError=tostring(err); source="arsenal renderer rejected"; if arsenalFrame then arsenalFrame:Hide() end end
+        return
+    end
     if breakpointLayouts[cfg.layout] and cfg.layout~="arc" then
         local ok,err=pcall(UpdateBreakpoints,demo)
         if not ok then lastError=tostring(err); source="breakpoint renderer rejected" end
@@ -555,7 +747,7 @@ function T.Finish(demo)
 end
 function T.Status()
     if not cfg then return "not initialized" end
-    return (cfg.enabled and cfg.layout or "off").." | "..(breakpointLayouts[cfg.layout] and (#breakpointRows.." breakpoints") or (#rows.." abilities")).." | action bars "..tostring(cfg.actionBars).." | dial "..source.." | last error "..lastError
+    return (cfg.enabled and cfg.layout or "off").." | "..(breakpointLayouts[cfg.layout] and (#breakpointRows.." breakpoints") or ((cfg.layout=="arsenal" and #arsenalRows or #rows).." abilities")).." | action bars "..tostring(cfg.actionBars).." | dial "..source.." | last error "..lastError
 end
 function T.Command(arg)
     if arg=="on" then cfg.enabled=true
@@ -563,6 +755,7 @@ function T.Command(arg)
     elseif arg=="lock" then cfg.locked=true
     elseif arg=="unlock" then cfg.locked=false
     elseif layouts[arg] then cfg.layout=arg; cfg.enabled=true
+    elseif arsenalStyles[arg] then cfg.layout="arsenal"; cfg.enabled=true; cfg.arsenalStyle=arg
     else return false end
     return true
 end
@@ -586,7 +779,7 @@ function T.Open()
             if key=="enabled" and not value then cfg.actionBars=true end
             api.apply()
         end
-        local checks={}
+        local checks,checkLabels,checkHits={},{},{}
         local function Check(key,text,x,y)
             local b=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate")
             b:SetSize(24,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,Offset(y))
@@ -594,7 +787,7 @@ function T.Open()
             local hit=CreateFrame("Button",nil,panel); hit:SetPoint("TOPLEFT",l,"TOPLEFT",-2,3); hit:SetPoint("BOTTOMRIGHT",l,"BOTTOMRIGHT",3,-3)
             hit:SetScript("OnClick",function() b:Click() end)
             b:SetScript("OnClick",function(self) Change(key,self:GetChecked() and true or false) end)
-            checks[key]=b
+            checks[key]=b; checkLabels[key]=l; checkHits[key]=hit
         end
         Check("enabled","Enable tracker",16,-34); Check("actionBars","Action-bar overlays",245,-34)
         Check("locked","Lock position",16,-60); Check("vertical","Vertical icons",245,-60)
@@ -602,12 +795,16 @@ function T.Open()
         for i,e in ipairs({{"dial","Dial"},{"bars","Bars"},{"icons","Icons"},{"freeform","Freeform"},{"rings","Rings"}}) do
             local key=e[1]; buttons[key]=Button(e[2],16+(i-1)*94,-88,90,function() Change("layout",key) end)
         end
-        for i,e in ipairs({{"segments","Segments"},{"staircase","Staircase"},{"lights","Lights"},{"arc","Arc"}}) do
-            local key=e[1]; buttons[key]=Button(e[2],16+(i-1)*117,-117,113,function() Change("layout",key) end)
+        for i,e in ipairs({{"segments","Segments"},{"staircase","Staircase"},{"lights","Lights"},{"arc","Arc"},{"arsenal","Arsenal"}}) do
+            local key=e[1]; buttons[key]=Button(e[2],16+(i-1)*94,-117,90,function() Change("layout",key) end)
         end
         local styles={}
         for i,e in ipairs({{"rising","Rising"},{"bar","Bottom"},{"perimeter","Perimeter"},{"radial","Radial"}}) do
             local key=e[1]; styles[key]=Button(e[2],16+(i-1)*117,-118,113,function() Change("iconMode",key) end)
+        end
+        local arsenalButtons={}
+        for i,e in ipairs({{"circle","Circles"},{"diamond","Diamonds"},{"charge","Charges"},{"count","Counts"}}) do
+            local key=e[1]; arsenalButtons[key]=Button(e[2],16+(i-1)*117,-118,113,function() Change("arsenalStyle",key) end)
         end
         local syncing=false
         local sliders={}
@@ -632,8 +829,9 @@ function T.Open()
         Button("Reset position",304,-270,160,function() cfg.x,cfg.y=0,-180; cfg.positions={}; signature=nil; api.apply() end)
         Check("showNames","Ability names",16,-300); Check("showCosts","Energy costs",245,-300)
         Check("hideReady","Hide affordable rows",16,-326); Check("readyEffects","Ready effects",245,-326)
+        Check("arsenalIcons","Show ability icons",16,-326); Check("arsenalAllRepeats","Repeat all (energy only)",245,-326)
         Check("auto","Track all current bar abilities",16,-352)
-        Text("Uncheck above to choose abilities. Selected off-page spells may persist.",16,-380)
+        local selectionHint=Text("Uncheck above to choose abilities. Selected off-page spells may persist.",16,-380)
         local page=1; local choices={}
         for i=1,6 do
             local x=16+((i-1)%2)*235; local y=-400-math.floor((i-1)/2)*28
@@ -652,8 +850,16 @@ function T.Open()
             syncing=true
             for key,b in pairs(checks) do b:SetChecked(cfg[key]) end
             for key,b in pairs(buttons) do Highlight(b,key==cfg.layout) end
-            for key,b in pairs(styles) do Highlight(b,key==cfg.iconMode); if cfg.layout=="icons" or cfg.layout=="freeform" then b:Enable() else b:Disable() end end
-            for key,b in pairs(colorButtons) do Highlight(b,key==cfg.color) end
+            local arsenal=cfg.layout=="arsenal"
+            for key,b in pairs(styles) do Highlight(b,key==cfg.iconMode); b:SetShown(not arsenal); if cfg.layout=="icons" or cfg.layout=="freeform" then b:Enable() else b:Disable() end end
+            for key,b in pairs(arsenalButtons) do b:SetShown(arsenal); Highlight(b,key==cfg.arsenalStyle) end
+            for _,key in ipairs({"hideReady","readyEffects","arsenalIcons","arsenalAllRepeats"}) do
+                local visible=(key=="arsenalIcons" or key=="arsenalAllRepeats")==arsenal
+                checks[key]:SetShown(visible); checkLabels[key]:SetShown(visible); checkHits[key]:SetShown(visible)
+            end
+            checkLabels.vertical:SetText(arsenal and "Vertical stacks" or "Vertical icons")
+            selectionHint:SetText(arsenal and "Energy only: alternative budgets. Colors and pip rules in Ability Chains." or "Uncheck above to choose abilities. Selected off-page spells may persist.")
+            for key,b in pairs(colorButtons) do Highlight(b,key==cfg.color); if arsenal then b:Disable() else b:Enable() end end
             for key,row in pairs(sliders) do row.bar:SetValue(cfg[key]*row.factor); row.label:SetText(row.text..": "..math.floor(cfg[key]*row.factor+.5)) end
             local entries={}; for _,e in pairs(catalog) do if e.cost and e.cost>0 then entries[#entries+1]=e end end
             table.sort(entries,function(a,b) if a.name==b.name then return a.spellID<b.spellID end return a.name<b.name end)
