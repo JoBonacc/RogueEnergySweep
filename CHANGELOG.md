@@ -1,6 +1,7 @@
 # Changelog
 
-## v0.13.0 (combined customization and release candidate)
+## v0.13.0
+- Add builder, finisher and Other/utility category filters alongside per-ability exclusions; include Death Mark as a Forever finisher, retain unknown spells in Other.
 - Preserve independent appearance settings per style; migrate old shared settings without changing the selected style. Add per-style reset and confirmation for resetting all settings in options.
 - Add independent rising tint opacity, reversed animation direction for all four styles, and an animated regeneration preview that stops when the settings close.
 - Add a selectable diagnostic report, optional session-local update timing, request coalescing counts and client-reported memory estimate.

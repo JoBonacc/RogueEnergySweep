@@ -126,6 +126,8 @@ local function InitDB()
     DB.combatOnly = DB.combatOnly == true
     DB.finisherComboOnly = DB.finisherComboOnly == true
     DB.hideCooldowns = DB.hideCooldowns == true
+    if type(DB.showCategories)~="table" then DB.showCategories={} end
+    for _,key in ipairs({"builder","finisher","other"}) do DB.showCategories[key]=DB.showCategories[key]~=false end
     if type(DB.excludedSpells)~="table" then DB.excludedSpells={} end
     for id,excluded in pairs(DB.excludedSpells) do
         if not SafeNumber(id) or id<=0 or excluded~=true then DB.excludedSpells[id]=nil end
@@ -244,7 +246,24 @@ local FINISHERS = {
     [8647]=true,[8649]=true,[8650]=true,[11197]=true,[11198]=true, -- Expose Armor
     [1943]=true,[8639]=true,[8640]=true,[11273]=true,[11274]=true,[11275]=true, -- Rupture
     [408]=true,[8643]=true, -- Kidney Shot
+    [1316709]=true, -- Death Mark (Forever)
 }
+-- Known combo-point generating spells and ranks. Unknown or conditionally
+-- generating abilities remain Other rather than being guessed from names.
+local BUILDERS = {
+    [1752]=true,[1757]=true,[1758]=true,[1759]=true,[1760]=true,[8621]=true,[11293]=true,[11294]=true,
+    [53]=true,[2589]=true,[2590]=true,[2591]=true,[8721]=true,[11279]=true,[11280]=true,[11281]=true,[25300]=true,
+    [1776]=true,[1777]=true,[8629]=true,[11285]=true,[11286]=true,
+    [703]=true,[8631]=true,[8632]=true,[8633]=true,[11289]=true,[11290]=true,
+    [8676]=true,[8724]=true,[8725]=true,[11267]=true,[11268]=true,[11269]=true,
+    [1833]=true,[14278]=true,[16511]=true,[17347]=true,[17348]=true,[26864]=true,
+    [1329]=true,[34411]=true,[34412]=true,[34413]=true,[14183]=true,
+}
+local function SpellCategory(id,finisher)
+    if finisher or FINISHERS[id] then return "finisher" end
+    if BUILDERS[id] then return "builder" end
+    return "other"
+end
 local function GetEnergyCost(spellID)
     if not spellID or not C_Spell or not C_Spell.GetSpellPowerCost then
         return nil, false
@@ -313,7 +332,10 @@ end
 local function ApplyComboGate(record,alpha,enabled)
     local value=1
     if enabled and record.finisher then value=alpha end
+    local public=SafeNumber(value)
+    if public~=nil and record.comboPublicAlpha==public then return true end
     local ok=pcall(record.comboGate.SetAlpha,record.comboGate,value)
+    record.comboPublicAlpha=ok and public or nil
     if not ok then
         -- Fail closed for a finisher if the protected alpha is not accepted.
         pcall(record.comboGate.SetAlpha,record.comboGate,0)
@@ -344,12 +366,15 @@ local function CooldownAlpha(spellID)
     return 1,"unavailable"
 end
 local function ApplyCooldownGate(record,alpha)
+    local public=SafeNumber(alpha)
+    if public~=nil and record.cooldownPublicAlpha==public then return true end
     local ok=pcall(record.cooldownGate.SetAlpha,record.cooldownGate,alpha)
+    record.cooldownPublicAlpha=ok and public or nil
     if not ok then pcall(record.cooldownGate.SetAlpha,record.cooldownGate,1) end
     return ok
 end
 local function IsExcluded(record)
-    return DB.excludedSpells[record.spellID]==true
+    return DB.excludedSpells[record.spellID]==true or (DB.showCategories and DB.showCategories[record.category or "other"]==false) or false
 end
 
 local function Clear(record)
@@ -380,7 +405,7 @@ end
 local function ApplyDirection(record)
     local reverse=DB.reverse==true
     if record.direction==reverse then return end
-    if record.radial.SetRadialProgressBarReverse then record.radial:SetRadialProgressBarReverse(not reverse) end
+    if record.native and record.radial.SetRadialProgressBarReverse then pcall(record.radial.SetRadialProgressBarReverse,record.radial,not reverse) end
     if record.bar.SetReverseFill then record.bar:SetReverseFill(reverse) end
     if record.rising.SetReverseFill then record.rising:SetReverseFill(reverse) end
     if record.riseTint.SetReverseFill then record.riseTint:SetReverseFill(reverse) end
@@ -543,6 +568,7 @@ local function RegisterButton(button, costs)
         record = MakeOverlay(button)
     end
     record.spellID, record.cost, record.finisher = spellID, entry.cost, entry.finisher
+    record.category=SpellCategory(spellID,entry.finisher)
     records[#records+1] = record
 end
 
@@ -562,7 +588,7 @@ local BUTTON_PREFIXES = {
 local function RefreshBindings()
     bindingPending = false
     wipe(records)
-    for _, record in pairs(overlays) do record.spellID, record.cost, record.finisher = nil, nil, nil end
+    for _, record in pairs(overlays) do record.spellID, record.cost, record.finisher, record.category = nil, nil, nil, nil end
     RefreshMaxEnergy()
     local costs = {}
     for _, button in ipairs(knownButtons) do RegisterButton(button, costs) end
@@ -608,6 +634,7 @@ local function RefreshCosts()
             costs[record.spellID] = entry
         end
         record.finisher=entry.finisher
+        record.category=SpellCategory(record.spellID,entry.finisher)
         if entry.cost ~= record.cost then record.cost = entry.cost; changed = true end
     end
     if changed then RebuildGroups() end
@@ -1048,7 +1075,8 @@ local function DiagnosticReport()
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
-        "Tracked energy buttons: "..count.." | finishers: "..finishers.." | excluded buttons: "..excluded,
+        "Tracked energy buttons: "..count.." | finishers: "..finishers.." | filtered buttons: "..excluded,
+        "Categories: builders="..tostring(DB.showCategories.builder).." finishers="..tostring(DB.showCategories.finisher).." other="..tostring(DB.showCategories.other),
         "Enabled: "..tostring(DB.enabled).." | combat only: "..tostring(DB.combatOnly),
         "Style: "..DB.mode.." | progress: "..DB.progress.." | reversed: "..tostring(DB.reverse),
         "Color: "..ColorHex(ResolveColor()).." | opacity: "..math.floor(DB.opacity*100+.5).."% | thickness: "..DB.thickness,
@@ -1145,7 +1173,7 @@ local OPTION_LAYOUT = {
 
 local function AbilityFilterEntries()
     local entries,seen={},{}
-    local function Add(id,tracked)
+    local function Add(id,tracked,category)
         if not SafeNumber(id) or seen[id] then return end
         seen[id]=true
         local name,icon
@@ -1156,9 +1184,9 @@ local function AbilityFilterEntries()
                 icon=SafeNumber(info.iconID)
             end
         end
-        entries[#entries+1]={id=id,name=name or ("Spell "..id),icon=icon,tracked=tracked}
+        entries[#entries+1]={id=id,name=name or ("Spell "..id),icon=icon,tracked=tracked,category=category}
     end
-    for _,record in ipairs(records) do if record.cost and record.cost>0 then Add(record.spellID,true) end end
+    for _,record in ipairs(records) do if record.cost and record.cost>0 then Add(record.spellID,true,record.category) end end
     for id in pairs(DB.excludedSpells) do Add(id,false) end
     table.sort(entries,function(a,b) if a.name==b.name then return a.id<b.id end return a.name<b.name end)
     return entries
@@ -1168,7 +1196,7 @@ local function OpenAbilityFilters()
     if not abilityFilters then
         local panel=CreateFrame("Frame","RogueEnergySweepAbilityFilters",UIParent,"BasicFrameTemplateWithInset")
         abilityFilters=panel
-        panel:SetSize(460,390); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
+        panel:SetSize(460,426); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
         panel:SetMovable(true); panel:RegisterForDrag("LeftButton")
         panel:SetScript("OnDragStart",function(self) self:StartMoving() end)
         panel:SetScript("OnDragStop",function(self) self:StopMovingOrSizing() end)
@@ -1183,13 +1211,26 @@ local function OpenAbilityFilters()
             b:SetSize(w,24); b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); b:SetText(text); b:SetScript("OnClick",click); return b
         end
         Label("Uncheck abilities to hide their energy effects.",16,-36)
-        Label("Shows energy abilities discovered on your action bars.",16,-55,"GameFontHighlightSmall")
+        Label("Choose categories, then individual abilities below.",16,-55,"GameFontHighlightSmall")
+        local categoryBoxes={}
+        for i,entry in ipairs({{"builder","Builders"},{"finisher","Finishers"},{"other","Other / utility"}}) do
+            local key,name=entry[1],entry[2]
+            local x=16+(i-1)*140
+            local box=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate")
+            box:SetSize(24,24); box:SetPoint("TOPLEFT",panel,"TOPLEFT",x,-75)
+            local label=Label(name,x+28,-81,"GameFontHighlightSmall")
+            local hit=CreateFrame("Button",nil,panel)
+            hit:SetPoint("TOPLEFT",label,"TOPLEFT",-2,3); hit:SetPoint("BOTTOMRIGHT",label,"BOTTOMRIGHT",3,-3)
+            hit:SetScript("OnClick",function() box:Click() end)
+            box:SetScript("OnClick",function(self) DB.showCategories[key]=self:GetChecked() and true or false; ApplySettings() end)
+            categoryBoxes[key]=box
+        end
         local page=1
-        local pageLabel=Label("",190,-337,"GameFontHighlightSmall")
-        local empty=Label("No energy abilities found. Put abilities on your bars.",16,-90,"GameFontHighlightSmall")
+        local pageLabel=Label("",190,-373,"GameFontHighlightSmall")
+        local empty=Label("No energy abilities found. Put abilities on your bars.",16,-126,"GameFontHighlightSmall")
         local rows={}
         for i=1,8 do
-            local y=-76-(i-1)*30
+            local y=-112-(i-1)*30
             local box=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate")
             box:SetSize(24,24); box:SetPoint("TOPLEFT",panel,"TOPLEFT",16,y)
             local icon=panel:CreateTexture(nil,"ARTWORK")
@@ -1207,12 +1248,13 @@ local function OpenAbilityFilters()
             end)
             rows[i]=row
         end
-        local prev=Button("Previous",16,-329,100,function() page=page-1; refreshAbilityFilters() end)
-        local nextPage=Button("Next",344,-329,100,function() page=page+1; refreshAbilityFilters() end)
-        Button("Reset exclusions",16,-358,140,function() DB.excludedSpells={}; ApplySettings() end)
-        Button("Done",344,-358,100,function() panel:Hide() end)
+        local prev=Button("Previous",16,-365,100,function() page=page-1; refreshAbilityFilters() end)
+        local nextPage=Button("Next",344,-365,100,function() page=page+1; refreshAbilityFilters() end)
+        Button("Reset filters",16,-394,140,function() DB.excludedSpells={}; DB.showCategories={builder=true,finisher=true,other=true}; ApplySettings() end)
+        Button("Done",344,-394,100,function() panel:Hide() end)
         refreshAbilityFilters=function()
             local entries=AbilityFilterEntries()
+            for key,box in pairs(categoryBoxes) do box:SetChecked(DB.showCategories[key]~=false) end
             local pages=math.max(1,math.ceil(#entries/#rows))
             page=math.max(1,math.min(page,pages))
             pageLabel:SetText(page.." / "..pages)
@@ -1223,9 +1265,11 @@ local function OpenAbilityFilters()
                 local entry=entries[(page-1)*#rows+i]
                 row.id=entry and entry.id or nil
                 if entry then
+                    local categoryHidden=entry.category and DB.showCategories[entry.category]==false
                     row.box:SetChecked(not DB.excludedSpells[entry.id])
+                    if categoryHidden then row.box:Disable(); row.hit:Disable() else row.box:Enable(); row.hit:Enable() end
                     row.icon:SetTexture(entry.icon or 134400)
-                    row.label:SetText(entry.name..(entry.tracked and "" or " (not on bars)").."  |cff999999#"..entry.id.."|r")
+                    row.label:SetText(entry.name..(not entry.tracked and " (not on bars)" or categoryHidden and " (category hidden)" or "").."  |cff999999#"..entry.id.."|r")
                     row.box:Show(); row.icon:Show(); row.label:Show(); row.hit:Show()
                 else row.box:Hide(); row.icon:Hide(); row.label:Hide(); row.hit:Hide() end
             end
@@ -1358,10 +1402,10 @@ local function CreateOptions()
     local tint,tintLabel=Check("Tint filled area",16,-layout.tint,function(v)
         if DB.mode=="rising" then DB.tint=v end
     end)
-    local tintOpacity,tintOpacityLabel=Slider("TintOpacity",240,-(layout.tint-4),0,100,5,function(v)
+    local tintOpacity,tintOpacityLabel=Slider("TintOpacity",240,-(layout.tint-8),0,100,5,function(v)
         if not syncing and DB.mode=="rising" and DB.tint then DB.tintOpacity=v/100; ApplySettings() end
     end)
-    local direction=Button("Reverse direction",240,-(layout.thickness+17),204,function() DB.reverse=not DB.reverse; ApplySettings() end)
+    local direction=Button("Reverse direction",240,-layout.thickness,204,function() DB.reverse=not DB.reverse; ApplySettings() end)
     Button("Reset style",324,-(layout.opacity+14),120,function() ResetAppearance(); ApplySettings() end)
     local radialHint=Label("Radial sweep uses color and opacity below.",16,-206,"GameFontHighlightSmall")
     Section("Preview", -layout.preview)
@@ -1426,7 +1470,9 @@ local function CreateOptions()
         syncing=true
         enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint); comboOnly:SetChecked(DB.finisherComboOnly); cooldownOnly:SetChecked(DB.hideCooldowns)
         local excludedCount=0; for _ in pairs(DB.excludedSpells) do excludedCount=excludedCount+1 end
-        filtersButton:SetText(excludedCount>0 and ("Filters ("..excludedCount..")...") or "Ability filters...")
+        local categoryCount=0; for _,key in ipairs({"builder","finisher","other"}) do if not DB.showCategories[key] then categoryCount=categoryCount+1 end end
+        local totalFilters=excludedCount+categoryCount
+        filtersButton:SetText(totalFilters>0 and ("Filters ("..totalFilters..")...") or "Ability filters...")
         for key,b in pairs(modes) do SelectButton(b,key==DB.mode) end
         for key,b in pairs(progressButtons) do SelectButton(b,key==DB.progress) end
         local tintAvailable,thicknessAvailable=StyleOptions(DB.mode)
@@ -1437,7 +1483,10 @@ local function CreateOptions()
         SetControlAvailable(tintOpacity,tintOpacityLabel,tintAvailable and DB.tint)
         tintOpacity:SetValue(DB.tintOpacity*100)
         tintOpacityLabel:SetText(string.format("Tint opacity: %d%%",math.floor(DB.tintOpacity*100+.5)))
-        SelectButton(direction,DB.reverse)
+        direction:Enable()
+        if direction.LockHighlight and direction.UnlockHighlight then
+            if DB.reverse then direction:LockHighlight() else direction:UnlockHighlight() end
+        end
         direction:SetText(DB.reverse and "Direction: reversed" or "Direction: default")
         for key,b in pairs(colors) do
             if key==DB.color then selectedMarks[key]:Show() else selectedMarks[key]:Hide() end

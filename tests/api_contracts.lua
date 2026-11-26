@@ -305,3 +305,19 @@ assert(src:find('if previewEnergy>=100 then StopPreview() end',1,true))
 assert(src:find('StopPreview(); if abilityFilters',1,true))
 assert(src:find('if not performanceSample.enabled or type(debugprofilestop)',1,true))
 print("PASS: appearance migration, per-style reset, reversed perimeter geometry, timing and preview lifecycle")
+
+local categoryCode=section("local FINISHERS","local function GetEnergyCost")
+local category=assert(load(categoryCode.."\nreturn SpellCategory","category mocks","t",_G))()
+assert(category(1752,false)=="builder" and category(11294,false)=="builder")
+assert(category(2098,false)=="finisher" and category(1316709,false)=="finisher")
+assert(category(999,true)=="finisher" and category(1766,false)=="other")
+assert(category(1329283,false)=="other") -- Shank can be a conditional builder.
+filterEnv.DB.showCategories={builder=false,finisher=true,other=true}
+filterEnv.DB.excludedSpells={}
+r.category="builder"; assert(excluded(r))
+r.category="other"; assert(not excluded(r))
+filterEnv.DB.excludedSpells[123]=true; assert(excluded(r))
+assert(src:find('record.category=SpellCategory(spellID,entry.finisher)',1,true))
+assert(src:find('DB.showCategories[key]=self:GetChecked()',1,true))
+assert(src:find('Slider("TintOpacity",240,-(layout.tint-8)',1,true))
+print("PASS: known ability categories, conservative unknown handling and category/individual filters")

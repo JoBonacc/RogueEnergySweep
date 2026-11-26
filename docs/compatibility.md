@@ -19,7 +19,7 @@ Build 71139, interface 16001: user reported all four countdown styles working in
 
 ## v0.13.0 combined release-candidate checklist
 
-- [ ] Verify v0.11 cooldown filter ignores GCD, restores overlays after real cooldowns, and respects combo gates and per-spell exclusions.
+- [ ] Verify v0.11 cooldown filter ignores GCD, restores overlays after real cooldowns, and respects combo gates, category filters and per-spell exclusions. Verify Death Mark and other newly learned spell ranks if available.
 - [ ] Verify target swap, no target and spending the last combo point; test in combat and on a stealth bar.
 - [ ] Verify preset/custom color picker, cancel, persistence, separate style appearance and reset behavior.
 - [ ] Verify reverse direction for every style in both progress modes, including clipped perimeter direction and rising stripe anchoring.
