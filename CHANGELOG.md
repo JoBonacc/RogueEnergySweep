@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.13.0 (combined customization and release candidate)
+- Preserve independent appearance settings per style; migrate old shared settings without changing the selected style. Add per-style reset and confirmation for resetting all settings in options.
+- Add independent rising tint opacity, reversed animation direction for all four styles, and an animated regeneration preview that stops when the settings close.
+- Add a selectable diagnostic report, optional session-local update timing, request coalescing counts and client-reported memory estimate.
+- Update public documentation and live test checklist; add mocked migration, direction, preview and profiling regression coverage. Live-client testing and public distribution remain pending.
+
 ## v0.11.0
 - Add optional per-ability exclusions with a paginated named/icon list of tracked and excluded spells.
 - Add optional cooldown filtering using native duration objects with GCD excluded; fail open when the API is unavailable. Separate display gates preserve combo-point and energy opacity.

@@ -266,3 +266,42 @@ assert(#entries==3 and entries[1].id==123 and entries[1].tracked and entries[2].
 assert(entries[1].icon==1123)
 assert(src:find('Button("Test on bars",324,-layout.previewIcons',1,true))
 print("PASS: deduplicated ability filter list, retained exclusions and compact preview actions")
+
+-- Active appearance remains backward compatible and is copied on migration.
+local prefsEnv=setmetatable({RogueEnergySweepDB={mode="rising",color="cyan",opacity=.7,thickness=2,tint=false,combatOnly=true,excludedSpells={[123]=true}}},{__index=_G})
+local initPrefs,styleMode,resetStyle,saveStyle,getPrefs=assert(load("local DB\n"..colorCode.."\nreturn InitDB,SetStyle,ResetAppearance,SaveAppearance,function() return DB end","appearance mocks","t",prefsEnv))()
+initPrefs()
+local prefs=getPrefs()
+assert(prefs.stylePrefs.bar.color=="cyan" and prefs.stylePrefs.radial.opacity==.7 and prefs.stylePrefs.rising.tint==false)
+prefs.color="purple"; prefs.reverse=true; prefs.tintOpacity=.35
+assert(styleMode("bar") and prefs.color=="cyan" and prefs.reverse==false)
+prefs.color="white"; prefs.thickness=6; saveStyle()
+assert(styleMode("rising") and prefs.color=="purple" and prefs.reverse==true and prefs.tintOpacity==.35)
+resetStyle(); assert(prefs.color=="amber" and prefs.thickness==4 and prefs.reverse==false and prefs.combatOnly and prefs.excludedSpells[123])
+assert(styleMode("bar") and prefs.color=="white" and prefs.thickness==6)
+initPrefs(); assert(prefs.mode=="bar" and prefs.color=="white" and prefs.stylePrefs.rising.color=="amber")
+local dirCode=section("local function EdgeRange","local function ApplyDirection")
+local ranges=assert(load(dirCode.."\nreturn EdgeRange","edge order","t",_G))()
+local a,b,flip=ranges(1,false); assert(a==0 and b==.25 and not flip)
+a,b,flip=ranges(1,true); assert(a==.75 and b==1 and flip)
+a,b,flip=ranges(4,true); assert(a==0 and b==.25 and flip)
+-- Exercise reversed native clipped geometry with the existing opaque snapshot mocks.
+env2.CreateFrame=function() return layoutWidget() end
+rec.countdownClips=nil; rec.countdownEdges=nil; rec.countdownLayout=nil
+env2.DB.mode="perimeter"; env2.DB.reverse=true
+assert(paintDirect(rec,secret,secret,secret,snapshot))
+assert(rec.countdownEdges[1].anchor[3]==120 and rec.countdownEdges[2].anchor[4]==-72)
+assert(rec.countdownEdges[3].anchor[3]==-40 and rec.countdownEdges[4].anchor[4]==0)
+env2.DB.reverse=false
+assert(paintDirect(rec,secret,secret,secret,snapshot))
+assert(rec.countdownEdges[1].anchor[3]==0 and rec.countdownEdges[4].anchor[4]==-108)
+local timingCode=section("local function IsSecret","local MODES")..section("local function RecordTiming","local function Update()")
+local timing=assert(load(timingCode.."\nreturn RecordTiming","timing mock","t",_G))()
+local sample={updates=0,total=0,max=0}
+timing(sample,.25); timing(sample,1.5); timing(sample,-1); timing(sample,0/0)
+assert(sample.updates==2 and sample.total==1.75 and sample.max==1.5)
+assert(src:find('panel:SetScript("OnUpdate",nil)',1,true))
+assert(src:find('if previewEnergy>=100 then StopPreview() end',1,true))
+assert(src:find('StopPreview(); if abilityFilters',1,true))
+assert(src:find('if not performanceSample.enabled or type(debugprofilestop)',1,true))
+print("PASS: appearance migration, per-style reset, reversed perimeter geometry, timing and preview lifecycle")

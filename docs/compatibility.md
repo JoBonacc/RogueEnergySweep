@@ -17,6 +17,17 @@ v0.6.1: user confirmed restored radial rendering works. All four energy-based st
 
 Build 71139, interface 16001: user reported all four countdown styles working in v0.7.0. Together with the earlier v0.6.0/v0.6.1 energy-style checks, all eight animation combinations are reported working. The v0.7.0 bottom-bar status showed five tracked buttons, five bars active, a protected snapshot requesting direct ranges, and no historical API error. The progress summary incorrectly displayed `5: 5`; v0.7.1 fixes the label without changing rendering. The full edge-case checklist below has not been completed, and action-bar configuration was not recorded. No fully live-tested build is claimed. The reviewed baseline remains 71091.
 
+## v0.13.0 combined release-candidate checklist
+
+- [ ] Verify v0.11 cooldown filter ignores GCD, restores overlays after real cooldowns, and respects combo gates and per-spell exclusions.
+- [ ] Verify target swap, no target and spending the last combo point; test in combat and on a stealth bar.
+- [ ] Verify preset/custom color picker, cancel, persistence, separate style appearance and reset behavior.
+- [ ] Verify reverse direction for every style in both progress modes, including clipped perimeter direction and rising stripe anchoring.
+- [ ] Verify tint opacity and contextual controls; check preview play/stop, manual slider interruption, closing settings and UI scale.
+- [ ] Run diagnostic sampling during representative gameplay; capture update count, mean/max callback time, coalesced requests, reported memory and errors. Compare behavior with addon disabled if needed. No measured client performance is claimed yet.
+- [ ] Review and copy the diagnostic report; verify no unexpected information before sharing.
+- [ ] Capture public screenshots, confirm packaging, attribution and compatibility language before distribution.
+
 Run after every client patch or rendering change:
 
 - [ ] Record addon version, game build/interface and action-bar addon from `/resweep status`.

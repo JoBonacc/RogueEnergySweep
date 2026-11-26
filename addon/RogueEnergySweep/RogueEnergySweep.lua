@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.11.0 (WoW Forever)
+-- Rogue Energy Sweep 0.13.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -63,25 +63,61 @@ local function OpenCustomColorPicker(apply)
     if not picker or not picker.SetupColorPickerAndShow or not picker.GetColorRGB then
         return false
     end
+    local ownerMode=DB.mode
     local previous=DB.color
     local saved=DB.customColor
     local original=saved and {saved[1],saved[2],saved[3]} or nil
     local c=ResolveColor()
     local function restore()
-        DB.color=previous; DB.customColor=original
-        apply()
+        if DB.mode==ownerMode then DB.color=previous; DB.customColor=original; apply()
+        elseif DB.stylePrefs and DB.stylePrefs[ownerMode] then
+            DB.stylePrefs[ownerMode].color=previous; DB.stylePrefs[ownerMode].customColor=original
+        end
     end
     local ok=pcall(function()
         picker:SetupColorPickerAndShow({
             r=c[1],g=c[2],b=c[3],hasOpacity=false,
             swatchFunc=function()
-                if SetCustomColor(picker:GetColorRGB()) then apply() end
+                if DB.mode==ownerMode and SetCustomColor(picker:GetColorRGB()) then apply() end
             end,
             cancelFunc=restore
         })
     end)
     if not ok then restore(); return false end
     return true
+end
+local function AppearanceSnapshot(source)
+    local c=source.customColor
+    c=type(c)=="table" and ValidRGB(c[1],c[2],c[3]) or nil
+    local color=source.color
+    if not COLORS[color] and not (color=="custom" and c) then color="amber" end
+    return {color=color,customColor=c,
+        opacity=math.max(.15,math.min(1,SafeNumber(source.opacity) or .90)),
+        thickness=math.floor(math.max(2,math.min(8,SafeNumber(source.thickness) or 4))+.5),
+        tint=source.tint~=false,
+        tintOpacity=math.max(0,math.min(1,SafeNumber(source.tintOpacity) or .15)),
+        reverse=source.reverse==true}
+end
+local function LoadAppearance(source)
+    local a=AppearanceSnapshot(source)
+    DB.color=a.color; DB.customColor=a.customColor; DB.opacity=a.opacity
+    DB.thickness=a.thickness; DB.tint=a.tint; DB.tintOpacity=a.tintOpacity; DB.reverse=a.reverse
+end
+local function SaveAppearance()
+    DB.stylePrefs[DB.mode]=AppearanceSnapshot(DB)
+end
+local function SetStyle(mode)
+    if not MODES[mode] then return false end
+    if mode=="auto" then mode="radial" end
+    if DB.mode==mode then return false end
+    SaveAppearance()
+    DB.mode=mode
+    LoadAppearance(DB.stylePrefs[mode] or {})
+    SaveAppearance()
+    return true
+end
+local function ResetAppearance()
+    LoadAppearance({}); SaveAppearance()
 end
 local function InitDB()
     if type(RogueEnergySweepDB) ~= "table" then RogueEnergySweepDB = {} end
@@ -95,14 +131,16 @@ local function InitDB()
         if not SafeNumber(id) or id<=0 or excluded~=true then DB.excludedSpells[id]=nil end
     end
     if not MODES[DB.mode] or DB.mode == "auto" then DB.mode = "rising" end
-    if type(DB.customColor)=="table" then
-        DB.customColor=ValidRGB(DB.customColor[1],DB.customColor[2],DB.customColor[3])
-    else DB.customColor=nil end
-    if not COLORS[DB.color] and not (DB.color=="custom" and DB.customColor) then DB.color = "amber" end
-    DB.thickness = math.floor(math.max(2, math.min(8, SafeNumber(DB.thickness) or 4))+0.5)
-    DB.tint = DB.tint ~= false
+    -- Migrate the previous shared appearance to all four modes. The active
+    -- top-level fields remain authoritative for old saved settings and slash commands.
+    LoadAppearance(DB)
+    if type(DB.stylePrefs)~="table" then DB.stylePrefs={} end
+    for _,mode in ipairs({"rising","bar","perimeter","radial"}) do
+        local stored=DB.stylePrefs[mode]
+        DB.stylePrefs[mode]=AppearanceSnapshot(type(stored)=="table" and stored or DB)
+    end
+    SaveAppearance()
     if DB.progress ~= "countdown" then DB.progress = "energy" end
-    DB.opacity = math.max(0.15, math.min(1.00, SafeNumber(DB.opacity) or 0.90))
 end
 
 local function RefreshMaxEnergy()
@@ -332,7 +370,42 @@ local function ClearAll()
 end
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
+-- Reversal changes public geometry only. Never manipulate protected energy.
+local function EdgeRange(i,reverse)
+    local segment=reverse and 5-i or i
+    local flipped=(i==2 or i==3)
+    if reverse then flipped=not flipped end
+    return (segment-1)/4,segment/4,flipped
+end
+local function ApplyDirection(record)
+    local reverse=DB.reverse==true
+    if record.direction==reverse then return end
+    if record.radial.SetRadialProgressBarReverse then record.radial:SetRadialProgressBarReverse(not reverse) end
+    if record.bar.SetReverseFill then record.bar:SetReverseFill(reverse) end
+    if record.rising.SetReverseFill then record.rising:SetReverseFill(reverse) end
+    if record.riseTint.SetReverseFill then record.riseTint:SetReverseFill(reverse) end
+    if record.line and record.rising.GetStatusBarTexture then
+        local tex=record.rising:GetStatusBarTexture()
+        local edge=reverse and "BOTTOM" or "TOP"
+        record.line:ClearAllPoints()
+        record.line:SetPoint(edge.."LEFT",tex,edge.."LEFT",0,0)
+        record.line:SetPoint(edge.."RIGHT",tex,edge.."RIGHT",0,0)
+    end
+    for i,edge in ipairs(record.edges) do
+        local low,high,flip=EdgeRange(i,reverse)
+        edge:SetMinMaxValues(low,high)
+        if edge.SetReverseFill then edge:SetReverseFill(flip) end
+    end
+    record.direction=reverse
+end
 local function Style(record)
+    -- A newly created default record already uses the original geometry.
+    if DB.reverse==true or record.direction~=nil then ApplyDirection(record) end
+    if record.countdownRadial and record.radialDirection~=(DB.reverse==true) then
+        local texture=record.countdownRadial:GetStatusBarTexture()
+        if texture and texture.SetRadialProgressBarReverse then texture:SetRadialProgressBarReverse(DB.reverse~=true) end
+        record.radialDirection=DB.reverse==true
+    end
     local color = ResolveColor()
     local r,g,b = color[1],color[2],color[3]
     -- Black remains useful for radial shading; use a visible light fill for linear styles.
@@ -351,7 +424,7 @@ local function Style(record)
         record.line:SetHeight(DB.thickness)
     end
     -- Optional low-opacity fill behind the bright leading stripe.
-    record.riseTint:SetStatusBarColor(lr,lg,lb,DB.tint and DB.opacity * 0.15 or 0)
+    record.riseTint:SetStatusBarColor(lr,lg,lb,DB.tint and DB.opacity * (DB.tintOpacity or .15) or 0)
     for i,edge in ipairs(record.edges) do
         edge:SetStatusBarColor(lr,lg,lb,DB.opacity)
         if i%2==1 then edge:SetHeight(DB.thickness) else edge:SetWidth(DB.thickness) end
@@ -603,8 +676,8 @@ local function PrepareCountdownRadial(record)
     bar:SetRenderMode(Enum and Enum.StatusBarRenderMode and Enum.StatusBarRenderMode.Radial or 1)
     local texture=bar:GetStatusBarTexture()
     -- Match the direction and default geometry of the working radial texture.
-    if texture.SetRadialProgressBarReverse then texture:SetRadialProgressBarReverse(true) end
-    record.countdownRadial=bar
+    if texture.SetRadialProgressBarReverse then texture:SetRadialProgressBarReverse(DB.reverse~=true) end
+    record.countdownRadial=bar; record.radialDirection=DB.reverse==true
     Style(record)
     return bar
 end
@@ -627,15 +700,26 @@ local function PrepareCountdownEdges(record)
             record.countdownClips[i]=clip; record.countdownEdges[i]=edge
         end
     end
-    local key=tostring(w)..":"..tostring(h)..":"..tostring(DB.thickness)
+    local reverse=DB.reverse==true
+    local key=tostring(w)..":"..tostring(h)..":"..tostring(DB.thickness)..":"..tostring(reverse)
     if record.countdownLayout~=key then
         for i,edge in ipairs(record.countdownEdges) do
             local clip=record.countdownClips[i]
             edge:ClearAllPoints()
-            if i==1 then edge:SetSize(4*w,DB.thickness); edge:SetPoint("LEFT",clip,"LEFT",0,0)
-            elseif i==2 then edge:SetSize(DB.thickness,4*h); edge:SetPoint("TOP",clip,"TOP",0,h)
-            elseif i==3 then edge:SetSize(4*w,DB.thickness); edge:SetPoint("RIGHT",clip,"RIGHT",2*w,0)
-            else edge:SetSize(DB.thickness,4*h); edge:SetPoint("BOTTOM",clip,"BOTTOM",0,-3*h) end
+            local flip=(i==2 or i==3)
+            if reverse then flip=not flip end
+            if edge.SetReverseFill then edge:SetReverseFill(flip) end
+            if reverse then
+                if i==1 then edge:SetSize(4*w,DB.thickness); edge:SetPoint("RIGHT",clip,"RIGHT",3*w,0)
+                elseif i==2 then edge:SetSize(DB.thickness,4*h); edge:SetPoint("BOTTOM",clip,"BOTTOM",0,-2*h)
+                elseif i==3 then edge:SetSize(4*w,DB.thickness); edge:SetPoint("LEFT",clip,"LEFT",-w,0)
+                else edge:SetSize(DB.thickness,4*h); edge:SetPoint("TOP",clip,"TOP",0,0) end
+            else
+                if i==1 then edge:SetSize(4*w,DB.thickness); edge:SetPoint("LEFT",clip,"LEFT",0,0)
+                elseif i==2 then edge:SetSize(DB.thickness,4*h); edge:SetPoint("TOP",clip,"TOP",0,h)
+                elseif i==3 then edge:SetSize(4*w,DB.thickness); edge:SetPoint("RIGHT",clip,"RIGHT",2*w,0)
+                else edge:SetSize(DB.thickness,4*h); edge:SetPoint("BOTTOM",clip,"BOTTOM",0,-3*h) end
+            end
         end
         record.countdownLayout=key
         Style(record)
@@ -714,7 +798,8 @@ end
 
 local lastComboSource="not evaluated"
 local lastCooldownSource="off"
-local function Update()
+local performanceSample={enabled=false,updates=0,total=0,max=0,requests=0,coalesced=0}
+local function UpdateCore()
     updatePending = false
     if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); if DB and DB.progress=="countdown" then ResetProgress() end; if refreshLiveStatus then refreshLiveStatus() end; return end
     local publicEnergy,triedPublic = nil,false
@@ -799,7 +884,29 @@ local function Update()
     if refreshLiveStatus then refreshLiveStatus() end
 end
 
+local function RecordTiming(sample,elapsed)
+    if not SafeNumber(elapsed) or elapsed<0 then return end
+    sample.updates=sample.updates+1; sample.total=sample.total+elapsed
+    sample.max=math.max(sample.max,elapsed)
+end
+local function Update()
+    if not performanceSample.enabled or type(debugprofilestop)~="function" then UpdateCore(); return end
+    local started=debugprofilestop()
+    UpdateCore()
+    RecordTiming(performanceSample,debugprofilestop()-started)
+end
+local function SetProfiling(enabled)
+    if enabled then
+        if type(debugprofilestop)~="function" then return false end
+        performanceSample={enabled=true,updates=0,total=0,max=0,requests=0,coalesced=0}
+    else performanceSample.enabled=false end
+    return true
+end
 local function RequestUpdate()
+    if performanceSample.enabled then
+        performanceSample.requests=performanceSample.requests+1
+        if updatePending then performanceSample.coalesced=performanceSample.coalesced+1 end
+    end
     if updatePending then return end
     updatePending = true
     C_Timer.After(0.03, Update)
@@ -903,7 +1010,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.11.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.13.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -918,8 +1025,100 @@ local function Status()
     CheckCompatibility(false)
     CheckBuild(false)
 end
+local function DiagnosticReport()
+    local state,interface=CompatibilityStatus()
+    local count,finishers,excluded=0,0,0
+    local errors={}
+    for _,record in ipairs(records) do
+        if record.cost and record.cost>0 then
+            count=count+1
+            if record.finisher then finishers=finishers+1 end
+            if IsExcluded(record) then excluded=excluded+1 end
+            if record.renderError then errors[#errors+1]="Spell "..tostring(record.spellID)..": "..record.renderError end
+        end
+    end
+    local providers={}
+    for _,name in ipairs({"Bartender4","Dominos","ElvUI"}) do
+        local loader=C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
+        if type(loader)=="function" then local ok,value=pcall(loader,name); if ok and not IsSecret(value) and value then providers[#providers+1]=name end end
+    end
+    local p=performanceSample
+    local lines={
+        "Rogue Energy Sweep v0.13.0 diagnostic report",
+        "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
+        "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
+        "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
+        "Tracked energy buttons: "..count.." | finishers: "..finishers.." | excluded buttons: "..excluded,
+        "Enabled: "..tostring(DB.enabled).." | combat only: "..tostring(DB.combatOnly),
+        "Style: "..DB.mode.." | progress: "..DB.progress.." | reversed: "..tostring(DB.reverse),
+        "Color: "..ColorHex(ResolveColor()).." | opacity: "..math.floor(DB.opacity*100+.5).."% | thickness: "..DB.thickness,
+        "Tint: "..tostring(DB.tint).." | tint opacity: "..math.floor(DB.tintOpacity*100+.5).."%",
+        "Actual progress: "..ProgressSummary(),
+        "Energy source: "..lastSource.." | max energy used: "..lastMaxEnergy,
+        "Finisher gate: "..tostring(DB.finisherComboOnly).." | "..lastComboSource,
+        "Cooldown gate: "..tostring(DB.hideCooldowns).." | "..lastCooldownSource,
+        string.format("Update profiling: %s | %d updates | avg %.3f ms | max %.3f ms",p.enabled and "running" or "stopped",p.updates,p.updates>0 and p.total/p.updates or 0,p.max),
+        string.format("Update requests: %d | coalesced: %d",p.requests,p.coalesced),
+        "Last API error (historical): "..lastError,
+    }
+    local memoryAPI=UpdateAddOnMemoryUsage
+    if type(memoryAPI)=="function" and type(GetAddOnMemoryUsage)=="function" then
+        local ok,kb=pcall(function() memoryAPI(); return GetAddOnMemoryUsage(ADDON_NAME) end)
+        kb=ok and SafeNumber(kb) or nil
+        if kb then lines[#lines+1]=string.format("Reported addon memory: %.1f KiB (client estimate)",kb) end
+    end
+    for _,line in ipairs(errors) do lines[#lines+1]=line end
+    return table.concat(lines,"\n")
+end
+local diagnosticPanel,refreshDiagnostic
+local function OpenDiagnostics()
+    if not diagnosticPanel then
+        local panel=CreateFrame("Frame","RogueEnergySweepDiagnostics",UIParent,"BasicFrameTemplateWithInset")
+        diagnosticPanel=panel
+        panel:SetSize(580,410); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG"); panel:EnableMouse(true)
+        if panel.TitleText then panel.TitleText:SetText("Rogue Energy Sweep diagnostics") end
+        if UISpecialFrames then UISpecialFrames[#UISpecialFrames+1]=panel:GetName() end
+        local hint=panel:CreateFontString(nil,"ARTWORK","GameFontHighlightSmall")
+        hint:SetPoint("TOPLEFT",panel,"TOPLEFT",16,-32)
+        hint:SetText("Select report, then Ctrl+C. Review before sharing.")
+        local scroll=CreateFrame("ScrollFrame",nil,panel,"UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT",panel,"TOPLEFT",16,-54)
+        scroll:SetPoint("BOTTOMRIGHT",panel,"BOTTOMRIGHT",-36,44)
+        local edit=CreateFrame("EditBox",nil,scroll)
+        edit:SetMultiLine(true); edit:SetAutoFocus(false); edit:SetFontObject(ChatFontNormal)
+        edit:SetWidth(508); edit:SetHeight(330)
+        edit:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
+        scroll:SetScrollChild(edit)
+        scroll:SetScript("OnMouseDown",function() edit:SetFocus() end)
+        local function Button(text,x,w,click)
+            local b=CreateFrame("Button",nil,panel,"UIPanelButtonTemplate")
+            b:SetSize(w,24); b:SetPoint("BOTTOMLEFT",panel,"BOTTOMLEFT",x,12)
+            b:SetText(text); b:SetScript("OnClick",click); return b
+        end
+        Button("Select report",16,114,function() edit:SetFocus(); edit:HighlightText() end)
+        Button("Refresh",136,90,function() refreshDiagnostic() end)
+        local profileButton
+        profileButton=Button("Start sampling",232,146,function()
+            if not SetProfiling(not performanceSample.enabled) then Say("Performance timer unavailable.") end
+            refreshDiagnostic()
+        end)
+        Button("Close",466,90,function() panel:Hide() end)
+        refreshDiagnostic=function()
+            local report=DiagnosticReport()
+            local _,newlines=report:gsub("\n","")
+            edit:SetHeight(math.max(330,(newlines+1)*21+40))
+            edit:SetText(report); edit:ClearFocus()
+            scroll:SetVerticalScroll(0)
+            profileButton:SetText(performanceSample.enabled and "Stop sampling" or "Start sampling")
+        end
+        panel:SetScript("OnHide",function() edit:ClearFocus() end)
+    end
+    diagnosticPanel:Show(); refreshDiagnostic()
+end
+
 local optionsPanel, settingsCategory, refreshPanel, refreshAbilityFilters, abilityFilters
 local function ApplySettings()
+    SaveAppearance()
     for _,record in pairs(overlays) do Style(record) end
     Update()
     if refreshPanel then refreshPanel() end
@@ -1090,7 +1289,7 @@ local function CreateOptions()
     local modes={}
     for i,entry in ipairs({{"rising","Rising line"},{"bar","Bottom bar"},{"perimeter","Perimeter"},{"radial","Radial sweep"}}) do
         local key,text=entry[1],entry[2]
-        modes[key]=Button(text,16+(i-1)*110,-168,106,function() if DB.mode~=key then DB.mode=key; ApplySettings() end end)
+        modes[key]=Button(text,16+(i-1)*110,-168,106,function() if SetStyle(key) then ApplySettings() end end)
     end
     Section("Progress mode", -layout.progress)
     local progressButtons={}
@@ -1159,13 +1358,24 @@ local function CreateOptions()
     local tint,tintLabel=Check("Tint filled area",16,-layout.tint,function(v)
         if DB.mode=="rising" then DB.tint=v end
     end)
+    local tintOpacity,tintOpacityLabel=Slider("TintOpacity",240,-(layout.tint-4),0,100,5,function(v)
+        if not syncing and DB.mode=="rising" and DB.tint then DB.tintOpacity=v/100; ApplySettings() end
+    end)
+    local direction=Button("Reverse direction",240,-(layout.thickness+17),204,function() DB.reverse=not DB.reverse; ApplySettings() end)
+    Button("Reset style",324,-(layout.opacity+14),120,function() ResetAppearance(); ApplySettings() end)
     local radialHint=Label("Radial sweep uses color and opacity below.",16,-206,"GameFontHighlightSmall")
     Section("Preview", -layout.preview)
     local previewEnergy=15
     local previewRecords={}
     local previewStart=15
-    local previewSlider,previewLabel=Slider("Energy",16,-layout.previewSliders,0,100,1,function(v) if not syncing then previewEnergy=v; if refreshPanel then refreshPanel() end end end)
-    local previewStartSlider,previewStartLabel=Slider("StartEnergy",240,-layout.previewSliders,0,100,1,function(v) if not syncing then previewStart=v; if refreshPanel then refreshPanel() end end end)
+    local previewPlaying=false
+    local playButton, refreshPreview
+    local function StopPreview()
+        previewPlaying=false; panel:SetScript("OnUpdate",nil)
+        if playButton then playButton:SetText("Animate") end
+    end
+    local previewSlider,previewLabel=Slider("Energy",16,-layout.previewSliders,0,100,1,function(v) if not syncing then StopPreview(); previewEnergy=v; if refreshPreview then refreshPreview() end end end)
+    local previewStartSlider,previewStartLabel=Slider("StartEnergy",240,-layout.previewSliders,0,100,1,function(v) if not syncing then StopPreview(); previewStart=v; if refreshPreview then refreshPreview() end end end)
     for i,entry in ipairs({{45,"Interface\\Icons\\Spell_Shadow_RitualOfSacrifice"},{35,"Interface\\Icons\\Ability_Rogue_Eviscerate"},{25,"Interface\\Icons\\Ability_Kick"}}) do
         local button=CreateFrame("Frame",nil,panel)
         button:SetSize(48,48); button:SetPoint("TOPLEFT",panel,"TOPLEFT",16+(i-1)*82,-layout.previewIcons)
@@ -1174,8 +1384,43 @@ local function CreateOptions()
         record.previewCost=entry[1]; previewRecords[#previewRecords+1]=record
         Label(tostring(entry[1]).." energy",16+(i-1)*82,-layout.previewCosts,"GameFontHighlightSmall")
     end
+    playButton=Button("Animate",240,-layout.previewIcons,80,function()
+        if previewPlaying then StopPreview(); return end
+        previewEnergy=DB.progress=="countdown" and previewStart or 0
+        previewPlaying=true; playButton:SetText("Stop")
+        if refreshPreview then refreshPreview() end
+        local accumulated=0
+        panel:SetScript("OnUpdate",function(_,elapsed)
+            accumulated=accumulated+elapsed
+            if accumulated<.033 then return end
+            previewEnergy=math.min(100,previewEnergy+accumulated*10); accumulated=0
+            refreshPreview()
+            if previewEnergy>=100 then StopPreview() end
+        end)
+    end)
     Button("Test on bars",324,-layout.previewIcons,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
-    Button("Reset defaults",324,-(layout.previewIcons+30),120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
+    Button("Diagnostics",240,-(layout.previewIcons+30),80,function() SlashCmdList.ROGUEENERGYSWEEP("diagnostics") end)
+    Button("Reset all",324,-(layout.previewIcons+30),120,function()
+        if StaticPopupDialogs and StaticPopup_Show then
+            StaticPopupDialogs.ROGUEENERGYSWEEP_RESET={text="Reset all Rogue Energy Sweep settings?",button1="Reset",button2="Cancel",OnAccept=function() SlashCmdList.ROGUEENERGYSWEEP("reset") end,timeout=0,whileDead=true,hideOnEscape=true}
+            StaticPopup_Show("ROGUEENERGYSWEEP_RESET")
+        else Say("Use /resweep reset to confirm resetting all settings.") end
+    end)
+    refreshPreview=function()
+        local wasSyncing=syncing; syncing=true
+        previewSlider:SetValue(math.floor(previewEnergy+.5)); previewStartSlider:SetValue(previewStart)
+        previewLabel:SetText(string.format("Energy: %d / 100",math.floor(previewEnergy+.5)))
+        previewStartLabel:SetText(string.format("Post-spend start: %d",previewStart))
+        for _,record in ipairs(previewRecords) do
+            local fill=math.min(1,previewEnergy/record.previewCost)
+            if DB.progress=="countdown" then
+                local start=math.min(previewStart,record.previewCost-0.001)
+                fill=math.max(0,math.min(1,(previewEnergy-start)/(record.previewCost-start)))
+            end
+            Paint(record,fill,1-fill,previewEnergy<record.previewCost and 1 or 0)
+        end
+        syncing=wasSyncing
+    end
     refreshPanel=function()
         refreshLiveStatus()
         syncing=true
@@ -1189,6 +1434,11 @@ local function CreateOptions()
         if tintAvailable then tint.optionLabelHit:Show() else tint.optionLabelHit:Hide() end
         SetControlAvailable(thickness,thicknessLabel,thicknessAvailable)
         if thicknessAvailable then radialHint:Hide() else radialHint:Show() end
+        SetControlAvailable(tintOpacity,tintOpacityLabel,tintAvailable and DB.tint)
+        tintOpacity:SetValue(DB.tintOpacity*100)
+        tintOpacityLabel:SetText(string.format("Tint opacity: %d%%",math.floor(DB.tintOpacity*100+.5)))
+        SelectButton(direction,DB.reverse)
+        direction:SetText(DB.reverse and "Direction: reversed" or "Direction: default")
         for key,b in pairs(colors) do
             if key==DB.color then selectedMarks[key]:Show() else selectedMarks[key]:Hide() end
         end
@@ -1197,25 +1447,16 @@ local function CreateOptions()
         local name="Custom"
         for _,entry in ipairs(PRESETS) do if entry[1]==DB.color then name=entry[2] end end
         colorLabel:SetText(name.."  "..ColorHex(c)..(DB.color=="black" and "  (linear styles use white)" or ""))
-        opacity:SetValue(DB.opacity*100); thickness:SetValue(DB.thickness); previewSlider:SetValue(previewEnergy); previewStartSlider:SetValue(previewStart)
+        opacity:SetValue(DB.opacity*100); thickness:SetValue(DB.thickness)
         opacityLabel:SetText(string.format("Opacity: %d%%",math.floor(DB.opacity*100+0.5)))
         thicknessLabel:SetText(string.format("%s thickness: %d px",DB.mode=="bar" and "Bar" or DB.mode=="perimeter" and "Border" or "Line",DB.thickness))
-        previewLabel:SetText(string.format("Energy: %d / 100",previewEnergy))
-        previewStartLabel:SetText(string.format("Post-spend start: %d",previewStart))
         SetControlAvailable(previewStartSlider,previewStartLabel,DB.progress=="countdown")
-        for _,record in ipairs(previewRecords) do
-            Style(record)
-            local fill=math.min(1,previewEnergy/record.previewCost)
-            if DB.progress=="countdown" then
-                local start=math.min(previewStart,record.previewCost-0.001)
-                fill=math.max(0,math.min(1,(previewEnergy-start)/(record.previewCost-start)))
-            end
-            Paint(record,fill,1-fill,previewEnergy<record.previewCost and 1 or 0)
-        end
+        for _,record in ipairs(previewRecords) do Style(record) end
+        refreshPreview()
         syncing=false
     end
     panel:SetScript("OnShow",refreshPanel)
-    panel:SetScript("OnHide",function() if abilityFilters then abilityFilters:Hide() end end)
+    panel:SetScript("OnHide",function() StopPreview(); if abilityFilters then abilityFilters:Hide() end end)
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
         settingsCategory=Settings.RegisterCanvasLayoutCategory(panel,"Rogue Energy Sweep")
         Settings.RegisterAddOnCategory(settingsCategory)
@@ -1232,7 +1473,7 @@ local function OpenOptions()
     else Say("Settings unavailable; use /resweep help.") end
 end
 local function Help()
-    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | resetstyle | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
@@ -1241,6 +1482,10 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     if cmd == "" or cmd == "options" then OpenOptions(); return
     elseif cmd == "status" then Status(); return
     elseif cmd == "filters" then OpenAbilityFilters(); return
+    elseif cmd == "diagnostics" then OpenDiagnostics(); return
+    elseif cmd == "profile" and (arg=="on" or arg=="off") then
+        if SetProfiling(arg=="on") then Say("Update profiling: "..arg) else Say("Performance timer unavailable.") end
+        return
     elseif cmd == "demo" then
         if not DB.enabled then Say("Enable the addon first with /resweep on."); return end
         if InCombatLockdown() then Say("Demo is available out of combat only."); return end
@@ -1264,8 +1509,11 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
         if COLORS[arg] then DB.color=arg
         elseif arg=="gold" then DB.color="amber"
         elseif not SetColorHex(arg) then Say("Choose amber, white, cyan, green, red, purple, orange, black or #RRGGBB."); return end
-    elseif cmd == "mode" and MODES[arg] then DB.mode = arg == "auto" and "radial" or arg
+    elseif cmd == "mode" and MODES[arg] then SetStyle(arg)
     elseif cmd == "progress" and (arg == "energy" or arg == "countdown") then SetProgress(arg)
+    elseif cmd == "reverse" then DB.reverse=not DB.reverse
+    elseif cmd == "tintopacity" and tonumber(arg) then DB.tintOpacity=math.max(0,math.min(100,tonumber(arg)))/100
+    elseif cmd == "resetstyle" then ResetAppearance()
     elseif cmd == "thickness" and tonumber(arg) then DB.thickness = math.floor(math.max(2,math.min(8,tonumber(arg)))+0.5)
     elseif cmd == "reset" then RogueEnergySweepDB = {}; InitDB(); ResetProgress(); lastError = "none"; RequestScan()
     else Help(); return end

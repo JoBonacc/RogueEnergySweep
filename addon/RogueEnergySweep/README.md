@@ -1,4 +1,4 @@
-# Rogue Energy Sweep v0.11.0 — experimental
+# Rogue Energy Sweep v0.13.0 — release candidate
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
@@ -8,7 +8,7 @@ Replace the old `RogueEnergySweep` folder under `Interface/AddOns/` with the fol
 - Rising line: a bright horizontal stripe rises up the icon; optional faint tint below it. Default for new installations and former Auto mode. If the fill-edge anchor is unavailable, a vertical fill is used instead.
 - Bottom bar: fills left to right against a dark track.
 - Perimeter: fills clockwise along the top, right, bottom, and left edges.
-- Radial sweep: legacy deficit shading, with native default full-circle geometry restored from v0.1.0. Live verification pending.
+- Radial sweep: legacy deficit shading, with native default full-circle geometry restored from v0.1.0. Reported working in the v0.7.0 animation smoke test; current release candidate requires retesting.
 
 All four indicators support two progress modes. Energy-based (default) shows the fraction of the ability cost accumulated. Countdown (experimental) starts at zero progress using a post-spend snapshot and fills toward affordability: after spending 45 of 60 energy, the next 45-energy ability progresses from 0% at 15 energy to 50% at 30 energy and disappears at 45. The sweep shows the remaining fraction. Another spend restarts the countdown for affected abilities; a refund advances it. All indicators disappear at affordability. Both modes follow actual energy rather than a fixed time estimate. The options preview has a second slider in countdown mode for post-spend starting energy. The standard cooldown/GCD is not modified. The new options panel has eight color swatches, a native custom RGB color picker with live preview and cancel restoration, opacity (15–100%), indicator thickness (2–8 UI units; linear indicators), optional rising fill tint, combat-only and enable switches, three sample icons with a simulated energy slider, a five-second action-bar test, and reset defaults.
 
@@ -18,6 +18,12 @@ Enable **Finishers only with combo points on target** to hide energy overlays on
 ## Ability filters
 Use **Ability filters...** to uncheck individual discovered energy abilities. Exclusions apply by spell ID to all matching buttons and are saved; new ranks may need to be excluded separately. **Hide on cooldown (ignore GCD)** uses native spell cooldown duration objects to suppress overlays on cooldown, excluding the global cooldown. If unavailable, effects remain visible. Both filters are optional, default off/empty, and bypassed by the demo. The preview is unaffected. Live verification is pending.
 
+## Appearance and preview
+Each style remembers its own color, opacity, thickness, direction, tint and tint opacity. Existing shared values are copied to all four styles on upgrade. **Reset style** restores only the current appearance; **Reset all** requires confirmation in options. Reverse direction is available for all four animations. Rising fill tint has independent opacity (relative to the main opacity). Animate runs a simulated 10 energy/sec regeneration cycle in the preview and stops at 100, on manual slider changes or when closing the settings. It does not change live energy or cast spells.
+
+## Diagnostics
+Use **Diagnostics** or `/resweep diagnostics` to open a selectable report. Click Select report and press Ctrl+C; WoW does not permit addons to write directly to the system clipboard. Review before sharing. Start sampling enables session-local timing of addon update callbacks; stop retains the sample. Reported memory is a client estimate and timing is not a full frame-rate/CPU profiler. No profiling is enabled by default. Actual performance and live compatibility still require in-game validation.
+
 ## Commands
 - `/resweep` or `/resweep options`: open options.
 - `/resweep demo`: display 50% progress for five seconds on tracked buttons (out of combat only).
@@ -26,6 +32,11 @@ Use **Ability filters...** to uncheck individual discovered energy abilities. Ex
 - `/resweep progress energy|countdown`: switch progress mode across all four styles.
 - `/resweep color amber|white|cyan|green|red|purple|orange|black` or `/resweep color #RRGGBB`: change color. The legacy black preset uses white in linear styles; a custom RGB color applies exactly to every style. Opacity is separate. If the native picker is unavailable, use the hex command.
 - `/resweep opacity 90`: change opacity.
+- `/resweep diagnostics`: open the diagnostic report.
+- `/resweep profile on|off`: start/reset or stop the update sampler.
+- `/resweep reverse`: reverse the active style.
+- `/resweep tintopacity 15`: set rising tint opacity (0–100).
+- `/resweep resetstyle`: reset only active appearance.
 - `/resweep thickness 4`: change line/bar thickness.
 - `/resweep finishers on|off`: enable or disable target combo-point filtering (omit argument to toggle).
 - `/resweep filters`: open individual ability filters.

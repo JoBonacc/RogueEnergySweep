@@ -2,7 +2,7 @@
 
 Customizable energy readiness indicators directly on your Rogue action buttons in **World of Warcraft: Forever**. See how close an ability is to becoming affordable without constantly looking at your energy bar.
 
-**Experimental:** Targets interface 16001 (Forever 1.60.1). Live testing of every style and progress mode is still pending.
+**Release candidate:** Targets interface 16001 (Forever 1.60.1). All eight style/progress combinations were reported working in earlier live smoke tests on build 71139; the combined release candidate still requires testing.
 
 ## Install and update
 
@@ -21,11 +21,11 @@ Customizable energy readiness indicators directly on your Rogue action buttons i
 
 Choose **energy-based** progress (fraction of the spell cost accumulated) or **countdown-based** progress (starts at zero after a detected spend). For example, a 45-energy ability with 15 energy left starts at 33% in energy mode or 0% in countdown mode. Both follow actual energy, not a fixed timer. Countdown is experimental and may fall back to energy mode. The options panel and `/resweep status` distinguish actual native/public countdown from energy fallback.
 
-Type `/resweep` to change style, progress mode, color, opacity, thickness, tint and combat-only behavior. Choose from eight preset colors or use the native custom RGB picker; colors preview live, cancel restores the previous selection, and opacity remains independent. Hex colors are also supported with `/resweep color #RRGGBB` (for example, `/resweep color #FFCC33`). Settings are grouped by purpose; tint appears only for Rising Line and thickness only for linear and perimeter styles. Switching styles keeps your saved preferences. The panel includes a simulated preview and a test on your bars. An optional finisher filter hides overlays on combo-point spenders until the current target has at least one combo point. Enable it in options or with `/resweep finishers on`; `/resweep finishers off` restores the original behavior. Optional per-ability exclusions and cooldown filtering (ignores the GCD) reduce clutter. Existing spell cooldowns and the global cooldown are not modified.
+Type `/resweep` to change style, progress mode, color, opacity, thickness, tint and combat-only behavior. Choose from eight preset colors or use the native custom RGB picker; colors preview live, cancel restores the previous selection, and opacity remains independent. Hex colors are also supported with `/resweep color #RRGGBB` (for example, `/resweep color #FFCC33`). Settings are grouped by purpose; tint appears only for Rising Line and thickness only for linear and perimeter styles. Each style remembers its own appearance. Reverse direction, independent rising tint opacity, per-style reset and an animated preview are included. The panel includes a simulated preview, test on your bars and a selectable diagnostic report with optional update timing. An optional finisher filter hides overlays on combo-point spenders until the current target has at least one combo point. Enable it in options or with `/resweep finishers on`; `/resweep finishers off` restores the original behavior. Optional per-ability exclusions and cooldown filtering (ignores the GCD) reduce clutter. Existing spell cooldowns and the global cooldown are not modified.
 
 ## Support and compatibility
 
-Blizzard action bars are the primary target. Bartender4, Dominos and ElvUI are best-effort; macro and talent-modified cost detection depends on the client API. Protected-value rendering and countdown behavior need live verification. Use `/resweep status` to inspect the renderer, fallback and interface compatibility. An interface warning is a prompt to test, not proof of breakage.
+Blizzard action bars are the primary target. Bartender4, Dominos and ElvUI are best-effort; macro and talent-modified cost detection depends on the client API. Protected-value rendering has passed earlier smoke tests; new filters, reversed geometry and the combined candidate require live verification. Use `/resweep status` to inspect the renderer, fallback and interface compatibility. An interface warning is a prompt to test, not proof of breakage.
 
 Build alerts detect newer builds even when the interface number is unchanged. See [live compatibility checklist and review record](docs/compatibility.md). No complete live test is recorded for this release.
 
