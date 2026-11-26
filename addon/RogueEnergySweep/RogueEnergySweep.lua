@@ -1,8 +1,10 @@
--- Rogue Energy Sweep 0.16.0 (WoW Forever)
+-- Rogue Energy Sweep 0.17.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...
 local Tracker=ns and ns.Tracker
+local Chains=ns and ns.Chains
+local GCD=ns and ns.GCD
 local _, playerClass = UnitClass("player")
 if playerClass ~= "ROGUE" then return end
 local ENERGY = Enum and Enum.PowerType and Enum.PowerType.Energy or 3
@@ -154,6 +156,8 @@ local function InitDB()
     SaveAppearance()
     if DB.progress ~= "countdown" then DB.progress = "energy" end
     if Tracker then Tracker.Init(DB) end
+    if Chains then Chains.Init(DB) end
+    if GCD then GCD.Init(DB) end
 end
 
 local function RefreshMaxEnergy()
@@ -408,6 +412,7 @@ end
 local function ClearAll()
     for _, record in pairs(overlays) do Clear(record); if ClearReady then ClearReady(record) end end
     if Tracker then Tracker.Hide() end
+    if Chains then Chains.Hide() end
 end
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
@@ -602,7 +607,7 @@ local function ReadySignal(record,alpha)
     if public~=nil then return public>=1,"public energy" end
     -- Public spell usability is a conservative secondary signal only for
     -- non-finishers. A missing combo point is not an energy transition.
-    if IsSecret(alpha) and not record.finisher and C_Spell and type(C_Spell.IsSpellUsable)=="function" then
+    if IsSecret(alpha) and not record.gcdProjected and not record.finisher and C_Spell and type(C_Spell.IsSpellUsable)=="function" then
         local ok,usable,insufficient=pcall(C_Spell.IsSpellUsable,record.spellID)
         if ok and not IsSecret(usable) and not IsSecret(insufficient) and type(usable)=="boolean" and type(insufficient)=="boolean" then
             if insufficient then return false,"public power usability" end
@@ -816,6 +821,7 @@ local function RebuildGroups()
     groups = {}
     ClearAll()
     if Tracker then Tracker.Sync(records,lastMaxEnergy) end
+    if Chains then Chains.Sync(records,lastMaxEnergy) end
     local function AddCost(cost)
         local group=groups[cost]
         if not group then
@@ -1117,6 +1123,8 @@ local function UpdateCore()
     updatePending = false
     if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); if DB and DB.progress=="countdown" then ResetProgress() end; if refreshLiveStatus then refreshLiveStatus() end; return end
     local trackerActive=Tracker and Tracker.Begin(demo)
+    if Chains then Chains.Begin() end
+    if GCD then GCD.Begin(lastMaxEnergy,demo) end
     local publicEnergy,triedPublic = nil,false
     local comboAlpha=1
     local gateEnabled=DB.finisherComboOnly and not demo
@@ -1170,13 +1178,13 @@ local function UpdateCore()
         for _,record in ipairs(group.records) do
             record.renderError=nil
             if DB.tracker and DB.tracker.actionBars==false and not demo then
-                Clear(record); ClearReady(record); record.progressState="tracker only"
+                Clear(record); ClearReady(record); if Chains then Chains.Clear(record) end; record.progressState="tracker only"
             else
             local comboOK=ApplyComboGate(record,comboAlpha,gateEnabled)
             if not comboOK then lastComboSource="native gate rejected" end
             local excluded=not demo and IsExcluded(record)
             if excluded then
-                Clear(record); ClearReady(record); record.progressState="excluded"
+                if Chains then Chains.Clear(record) end; Clear(record); ClearReady(record); record.progressState="excluded"
             elseif valid then
                 local alpha=1
                 if cooldownEnabled then
@@ -1192,6 +1200,11 @@ local function UpdateCore()
                 if not cooldownOK then lastCooldownSource="partial/unavailable" end
                 local comboPublic=gateEnabled and record.finisher and SafeNumber(comboAlpha) or nil
                 local cooldownPublic=SafeNumber(alpha)
+                if Chains then Chains.Update(record,not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0) end
+                local actualFill,actualDeficit,actualVisibility,actualReady=fill,deficit,visibility,readyAlpha
+                if GCD then
+                    fill,deficit,visibility,readyAlpha,record.gcdProjected=GCD.Project(record.spellID,cost,fill,deficit,visibility,readyAlpha,DB.progress=="countdown")
+                end
                 SafeUpdateReady(record,readyAlpha,not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0,false)
                 if directRange then
                     -- Retry on a new snapshot, style change, or reload, not every power event.
@@ -1214,7 +1227,8 @@ local function UpdateCore()
                     else record.progressState="energy" end
                     if not rendered and not record.mode then record.progressState="unavailable" end
                 end
-            else Clear(record); ClearReady(record); record.progressState="unavailable"; lastSource="energy unavailable" end
+                fill,deficit,visibility,readyAlpha=actualFill,actualDeficit,actualVisibility,actualReady
+            else Clear(record); ClearReady(record); if Chains then Chains.Clear(record) end; record.progressState="unavailable"; lastSource="energy unavailable" end
             end
         end
     end
@@ -1348,7 +1362,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.16.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.17.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -1400,7 +1414,7 @@ local function DiagnosticReport()
         for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
     end
     local lines={
-        "Rogue Energy Sweep v0.16.0 diagnostic report",
+        "Rogue Energy Sweep v0.17.0 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
@@ -1414,6 +1428,8 @@ local function DiagnosticReport()
         "Ready effect: "..DB.readyEffect.." | intensity: "..math.floor(DB.readyOpacity*100+.5).."% | match color: "..tostring(DB.readyMatchColor).." | pulse fallback: "..tostring(DB.readyFallback),
         "Ready paths: "..Counts(readyActuals),
         "Tracker: "..(Tracker and Tracker.Status() or "module unavailable"),
+        "Ability Chains: "..(Chains and Chains.Status() or "module unavailable"),
+        "GCD-aware: "..(GCD and GCD.Status() or "module unavailable"),
         "Ready signals: "..Counts(readySources),
         "Actual progress: "..ProgressSummary(),
         "Energy source: "..lastSource.." | max energy used: "..lastMaxEnergy,
@@ -1483,6 +1499,7 @@ local readyOptions,refreshReadyOptions
 local function ApplySettings()
     SaveAppearance()
     if Tracker and Tracker.Sync(records,lastMaxEnergy) then RebuildGroups() end
+    if Chains then Chains.Sync(records,lastMaxEnergy) end
     for _,record in pairs(overlays) do Style(record) end
     Update()
     if refreshPanel then refreshPanel() end
@@ -1773,6 +1790,8 @@ local function CreateOptions()
     progressButtons.countdown=Button("Countdown",156,-layout.progressButtons,132,function() SetProgress("countdown"); ApplySettings() end)
     local readyButton=Button("Ready effects...",300,-layout.progressButtons,144,OpenReadyOptions)
     if Tracker then Button("Energy Tracker...",304,-18,140,function() Tracker.Open() end) end
+    if Chains then Button("Ability Chains...",304,-(layout.previewCosts+8),140,function() Chains.Open() end) end
+    local gcdAware=Check("Account for global cooldown regeneration",16,-(layout.previewCosts+31),function(v) DB.gcdAware=v end)
     local liveStatus=Label("Countdown starts after spending energy (experimental).",16,-layout.progressStatus,"GameFontHighlightSmall")
     local previousStatus
     refreshLiveStatus=function()
@@ -1911,6 +1930,7 @@ local function CreateOptions()
     refreshPanel=function()
         refreshLiveStatus()
         syncing=true
+        gcdAware:SetChecked(DB.gcdAware==true)
         enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint); comboOnly:SetChecked(DB.finisherComboOnly); cooldownOnly:SetChecked(DB.hideCooldowns)
         local excludedCount=0; for _ in pairs(DB.excludedSpells) do excludedCount=excludedCount+1 end
         local categoryCount=0; for _,key in ipairs({"builder","finisher","other"}) do if not DB.showCategories[key] then categoryCount=categoryCount+1 end end
@@ -1971,7 +1991,7 @@ local function OpenOptions()
     else Say("Settings unavailable; use /resweep help.") end
 end
 local function Help()
-    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | fill solid/gradient/luminous | ready none/burst/flash/proc/halo/border/pulse/softflash | tracker | resetstyle | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | fill solid/gradient/luminous | ready none/burst/flash/proc/halo/border/pulse/softflash | tracker | chains | gcd on/off | resetstyle | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
@@ -1981,6 +2001,11 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     elseif cmd == "status" then Status(); return
     elseif cmd == "filters" then OpenAbilityFilters(); return
     elseif cmd == "diagnostics" then OpenDiagnostics(); return
+    elseif cmd=="gcd" then
+        if arg=="on" then DB.gcdAware=true elseif arg=="off" then DB.gcdAware=false else Help(); return end
+    elseif cmd=="chains" and Chains then
+        if arg=="" then Chains.Open(); return end
+        if not Chains.Command(arg) then Help(); return end
     elseif cmd=="tracker" and Tracker then
         if arg=="" then Tracker.Open(); return end
         if not Tracker.Command(arg) then Help(); return end
@@ -2054,8 +2079,11 @@ if Tracker then
         apply=ApplySettings,update=Update,
         cost=GetEnergyCost,category=SpellCategory,
         say=Say,
+        project=function(...) if GCD then return GCD.Project(...) end end,
     })
 end
+if Chains then Chains.Configure({safe=SafeNumber,secret=IsSecret,excluded=IsExcluded,evaluate=Evaluate,apply=ApplySettings}) end
+if GCD then GCD.Configure({safe=SafeNumber,secret=IsSecret,evaluate=Evaluate}) end
 
 local events = CreateFrame("Frame")
 for _, event in ipairs({"ADDON_LOADED","PLAYER_ENTERING_WORLD","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED",
@@ -2079,7 +2107,8 @@ events:SetScript("OnEvent", function(_, event, ...)
     elseif event=="SPELL_UPDATE_USABLE" then
         if DB.enabled and READY_ONESHOT[DB.readyEffect] then RequestUpdate() end
     elseif event=="SPELL_UPDATE_COOLDOWN" or event=="ACTIONBAR_UPDATE_COOLDOWN" or event=="SPELL_UPDATE_CHARGES" then
-        if DB.enabled and DB.hideCooldowns then RequestUpdate() end
+        if event=="SPELL_UPDATE_COOLDOWN" and GCD then GCD.CooldownEvent(records) end
+        if DB.enabled and (DB.hideCooldowns or DB.gcdAware) then RequestUpdate() end
     elseif event=="PLAYER_TARGET_CHANGED" or event=="COMBO_TARGET_CHANGED" or event=="UNIT_COMBO_POINTS" then
         if DB.enabled and DB.finisherComboOnly then RequestUpdate() end
     elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_POWER_UPDATE" then
@@ -2102,6 +2131,7 @@ events:SetScript("OnEvent", function(_, event, ...)
     elseif event == "PLAYER_REGEN_DISABLED" then demo = false; RefreshCosts(); Update()
     elseif event == "PLAYER_REGEN_ENABLED" then
         if rescanPending then ScanButtons() else RefreshCosts() end
+        if Chains then Chains.Sync(records,lastMaxEnergy) end
         Update()
     elseif event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_PAGE_CHANGED" or event == "UPDATE_SHAPESHIFT_FORM" or event == "UPDATE_STEALTH" then RequestBindings()
     elseif event == "SPELLS_CHANGED" then RequestBindings(); RequestScan() end

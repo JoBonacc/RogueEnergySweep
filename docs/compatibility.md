@@ -47,3 +47,6 @@ Only after all relevant checks pass, record build, addon version, date, client c
 - [ ] Enable tracker, test all five layouts, drag group and freeform icons, lock, reload, disable action bars and restore them.
 - [ ] Verify Dial alignment at public known thresholds, 0 and maximum; verify fallback and secret values in combat. Check duplicate/close-cost markers and high UI scale.
 - [ ] Verify bar/ring/icon energy and countdown modes, selection, filters, ready effects, stealth/page swaps, cost changes, persistence, mouse transparency and performance.
+
+## v0.17.0 checklist
+- [ ] Configure repeat and follow-up pips, check colors, partial fills, templates, cap, placement, talent changes, and energy-only predictions. Test GCD projection with public and protected timing, off-GCD spells, no GCD, and cooldown/combo filters. Inspect diagnostic paths.

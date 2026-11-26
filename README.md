@@ -43,3 +43,5 @@ Adapted from [Rogue Energy Need](https://www.curseforge.com/wow/addons/rogue-ene
 
 ## Optional standalone Energy Tracker
 Five movable layouts: a shared energy dial, stacked bars, grouped icons, freeform icons and concentric per-ability rings. Independent color, scale, size, spacing and icon style; action bars, tracker, or both. Shares native protected energy curves and cooldown/finisher filters with the original overlay. Disabled by default; live verification pending.
+
+Optional Ability Chains pips visualize repeat and alternate follow-up energy budgets. Experimental GCD-aware readiness uses public timing only; falls back to actual energy.

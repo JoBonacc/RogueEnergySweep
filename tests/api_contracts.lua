@@ -520,3 +520,12 @@ trackerDB.tracker.auto=false; trackerDB.tracker.selected[1]=true
 assert(tracker.Sync({tracked[3]},100)); assert(tracker.Costs()[35] and not tracker.Costs()[45])
 tracker.Command("off"); assert(tracker.Sync(tracked,100)); assert(not tracker.Begin(false) and trackerDB.tracker.actionBars)
 print("PASS: all five tracker layouts, protected group forwarding, manual selection, ready effects and disabled lifecycle")
+
+assert(loadfile("addon/RogueEnergySweep/GCD.lua"))
+assert(loadfile("addon/RogueEnergySweep/Chains.lua"))
+local chainFile=assert(io.open("addon/RogueEnergySweep/Chains.lua")); local chainSrc=chainFile:read("*a"); chainFile:close()
+local first=assert(chainSrc:find("local function RepeatThreshold",1,true)); local last=assert(chainSrc:find("local function GetColor",first,true))
+local repeatCost,followCost=assert(load(chainSrc:sub(first,last-1).."\nreturn RepeatThreshold,FollowThreshold","chain thresholds","t",_G))()
+assert(repeatCost(45,2,10)==80 and repeatCost(35,3,10)==85 and followCost(45,60,10)==95)
+assert(followCost(45,25,10)==60 and followCost(45,5,10)==45)
+print("PASS: repeat and follow-up threshold math")

@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.17.0
+- Add optional Ability Chains repeat and follow-up pips with templates, per-ability rules and colors, partial repeat progress, size/spacing/opacity/offset settings, and configurable assumed energy per GCD.
+- Add experimental GCD-aware readiness using public GCD timing and regeneration; protected timing falls back to actual energy. Countdown snapshots remain actual-energy based.
+
 ## v0.16.0
 - Add optional standalone Energy Tracker: Dial, Bars, Icons, Freeform and concentric Rings layouts with independent appearance, movable locked/unlocked frames, manual ability selection and action-bar display toggle.
 - Share native energy/cost groups, countdown snapshots and filtering with the original overlays. Dial uses original transparent ring artwork and static cost markers; numeric energy only when public. Add diagnostics and a separate settings window.
