@@ -1,4 +1,4 @@
-# Rogue Energy Sweep v0.13.0 — release candidate
+# Rogue Energy Sweep v0.14.0 — release candidate
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
@@ -19,7 +19,7 @@ Enable **Finishers only with combo points on target** to hide energy overlays on
 Use **Ability filters...** to select known combo-point builders, finishers and other/utility abilities, or uncheck individual discovered energy abilities. Unknown and conditionally generating spells are grouped under Other rather than guessed; category filters are enabled by default (show all). A category-hidden ability retains its individual preference. Exclusions apply by spell ID to all matching buttons and are saved; new ranks may need to be excluded separately. **Hide on cooldown (ignore GCD)** uses native spell cooldown duration objects to suppress overlays on cooldown, excluding the global cooldown. If unavailable, effects remain visible. Both filters are optional, default off/empty, and bypassed by the demo. The preview is unaffected. Live verification is pending.
 
 ## Appearance and preview
-Each style remembers its own color, opacity, thickness, direction, tint and tint opacity. Existing shared values are copied to all four styles on upgrade. **Reset style** restores only the current appearance; **Reset all** requires confirmation in options. Reverse direction is available for all four animations. Rising fill tint has independent opacity (relative to the main opacity). Animate runs a simulated 10 energy/sec regeneration cycle in the preview and stops at 100, on manual slider changes or when closing the settings. It does not change live energy or cast spells.
+Each style remembers its own color, opacity, thickness, direction, tint and tint opacity. Existing shared values are copied to all four styles on upgrade. **Reset style** restores only the current appearance; **Reset all** requires confirmation in options. Reverse direction is available for all four animations. Rising fill tint has independent opacity (relative to the main opacity), and three fill effects: Solid (original), Gradient (soft fade toward the trailing edge), and Luminous (additive gradient and leading stripe). Fill effects appear only when Rising Line tint is enabled, follow direction and both progress modes, and are saved per style. Solid is the migration default. Unsupported gradient/blend APIs fall back to solid; the diagnostic report counts affected buttons. Animate runs a simulated 10 energy/sec regeneration cycle in the preview and stops at 100, on manual slider changes or when closing the settings. It does not change live energy or cast spells.
 
 ## Diagnostics
 Use **Diagnostics** or `/resweep diagnostics` to open a selectable report. Click Select report and press Ctrl+C; WoW does not permit addons to write directly to the system clipboard. Review before sharing. Start sampling enables session-local timing of addon update callbacks; stop retains the sample. Reported memory is a client estimate and timing is not a full frame-rate/CPU profiler. No profiling is enabled by default. Actual performance and live compatibility still require in-game validation.
@@ -36,6 +36,7 @@ Use **Diagnostics** or `/resweep diagnostics` to open a selectable report. Click
 - `/resweep profile on|off`: start/reset or stop the update sampler.
 - `/resweep reverse`: reverse the active style.
 - `/resweep tintopacity 15`: set rising tint opacity (0–100).
+- `/resweep fill solid|gradient|luminous`: change the active Rising Line fill effect.
 - `/resweep resetstyle`: reset only active appearance.
 - `/resweep thickness 4`: change line/bar thickness.
 - `/resweep finishers on|off`: enable or disable target combo-point filtering (omit argument to toggle).

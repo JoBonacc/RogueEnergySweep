@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.13.0 (WoW Forever)
+-- Rogue Energy Sweep 0.14.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -86,6 +86,7 @@ local function OpenCustomColorPicker(apply)
     if not ok then restore(); return false end
     return true
 end
+local FILL_EFFECTS={solid=true,gradient=true,luminous=true}
 local function AppearanceSnapshot(source)
     local c=source.customColor
     c=type(c)=="table" and ValidRGB(c[1],c[2],c[3]) or nil
@@ -96,12 +97,13 @@ local function AppearanceSnapshot(source)
         thickness=math.floor(math.max(2,math.min(8,SafeNumber(source.thickness) or 4))+.5),
         tint=source.tint~=false,
         tintOpacity=math.max(0,math.min(1,SafeNumber(source.tintOpacity) or .15)),
-        reverse=source.reverse==true}
+        reverse=source.reverse==true,
+        fillEffect=FILL_EFFECTS[source.fillEffect] and source.fillEffect or "solid"}
 end
 local function LoadAppearance(source)
     local a=AppearanceSnapshot(source)
     DB.color=a.color; DB.customColor=a.customColor; DB.opacity=a.opacity
-    DB.thickness=a.thickness; DB.tint=a.tint; DB.tintOpacity=a.tintOpacity; DB.reverse=a.reverse
+    DB.thickness=a.thickness; DB.tint=a.tint; DB.tintOpacity=a.tintOpacity; DB.reverse=a.reverse; DB.fillEffect=a.fillEffect
 end
 local function SaveAppearance()
     DB.stylePrefs[DB.mode]=AppearanceSnapshot(DB)
@@ -423,6 +425,45 @@ local function ApplyDirection(record)
     end
     record.direction=reverse
 end
+-- The gradient is an independent white texture anchored to the native fill
+-- region. It stretches with that region rather than cropping a fixed gradient.
+-- Only public appearance values are used here; protected energy stays in bars.
+local function RisingFillStyle(record,r,g,b)
+    local alpha=DB.tint and DB.opacity*(DB.tintOpacity or .15) or 0
+    local requested=DB.mode=="rising" and DB.tint and DB.fillEffect or "solid"
+    local gradient=record.riseGradient
+    local actual="solid"
+    if record.line and record.line.SetBlendMode then
+        pcall(record.line.SetBlendMode,record.line,"BLEND")
+    end
+    if gradient then gradient:Hide() end
+    if gradient and requested~="solid" then
+        local luminous=requested=="luminous"
+        local peak=math.min(1,alpha*(luminous and 3 or 2.5))
+        local trail=alpha*.06
+        local low,high=trail,peak
+        if DB.reverse then low,high=high,low end
+        local ok=pcall(function()
+            gradient:SetBlendMode(luminous and "ADD" or "BLEND")
+            gradient:SetGradient("VERTICAL",CreateColor(r,g,b,low),CreateColor(r,g,b,high))
+            gradient:Show()
+        end)
+        if ok then
+            actual=requested
+            -- Bright leading stripe, with the soft additive glow inside the fill.
+            if luminous and record.line and record.line.SetBlendMode then
+                local blended=pcall(record.line.SetBlendMode,record.line,"ADD")
+                if not blended then
+                    gradient:Hide()
+                    actual="solid"
+                end
+            end
+        else gradient:Hide() end
+    end
+    record.riseTint:SetStatusBarColor(r,g,b,actual=="solid" and alpha or 0)
+    record.fillEffectActual=actual
+end
+
 local function Style(record)
     -- A newly created default record already uses the original geometry.
     if DB.reverse==true or record.direction~=nil then ApplyDirection(record) end
@@ -449,7 +490,7 @@ local function Style(record)
         record.line:SetHeight(DB.thickness)
     end
     -- Optional low-opacity fill behind the bright leading stripe.
-    record.riseTint:SetStatusBarColor(lr,lg,lb,DB.tint and DB.opacity * (DB.tintOpacity or .15) or 0)
+    RisingFillStyle(record,lr,lg,lb)
     for i,edge in ipairs(record.edges) do
         edge:SetStatusBarColor(lr,lg,lb,DB.opacity)
         if i%2==1 then edge:SetHeight(DB.thickness) else edge:SetWidth(DB.thickness) end
@@ -499,6 +540,17 @@ local function MakeOverlay(button, preview)
     track:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",-1,1)
     local tint = NewBar(frame,0,1,"VERTICAL")
     tint:SetAllPoints(frame)
+    local riseGradient
+    -- Allocate once; failure leaves the existing solid tint path intact.
+    local ok=pcall(function()
+        local nativeFill=tint:GetStatusBarTexture()
+        local gradient=tint:CreateTexture(nil,"OVERLAY")
+        gradient:Hide(); gradient:SetTexture(WHITE)
+        gradient:SetAllPoints(nativeFill)
+        if type(gradient.SetGradient)~="function" or type(CreateColor)~="function" or type(gradient.SetBlendMode)~="function" then return end
+        riseGradient=gradient
+    end)
+    if not ok then riseGradient=nil end
     local rising = NewBar(frame,0,1,"VERTICAL")
     rising:SetAllPoints(frame)
     rising:SetFrameLevel(frame:GetFrameLevel()+2)
@@ -523,7 +575,7 @@ local function MakeOverlay(button, preview)
     edges[2]:SetPoint("TOPRIGHT",frame,"TOPRIGHT",0,0); edges[2]:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",0,0)
     edges[3]:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",0,0); edges[3]:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",0,0)
     edges[4]:SetPoint("TOPLEFT",frame,"TOPLEFT",0,0); edges[4]:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",0,0)
-    local record = {button=button,frame=frame,comboGate=gate,cooldownGate=cooldownGate,radial=radial,bar=bar,native=native,track=track,rising=rising,riseTint=tint,line=line,edges=edges}
+    local record = {button=button,frame=frame,comboGate=gate,cooldownGate=cooldownGate,radial=radial,bar=bar,native=native,track=track,rising=rising,riseTint=tint,riseGradient=riseGradient,line=line,edges=edges}
     if not preview then overlays[button]=record end
     Style(record); Clear(record)
     return record
@@ -1037,7 +1089,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.13.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.14.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -1070,8 +1122,12 @@ local function DiagnosticReport()
         if type(loader)=="function" then local ok,value=pcall(loader,name); if ok and not IsSecret(value) and value then providers[#providers+1]=name end end
     end
     local p=performanceSample
+    local fillFallback=0
+    if DB.mode=="rising" and DB.tint and DB.fillEffect~="solid" then
+        for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
+    end
     local lines={
-        "Rogue Energy Sweep v0.13.0 diagnostic report",
+        "Rogue Energy Sweep v0.14.0 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
@@ -1080,7 +1136,8 @@ local function DiagnosticReport()
         "Enabled: "..tostring(DB.enabled).." | combat only: "..tostring(DB.combatOnly),
         "Style: "..DB.mode.." | progress: "..DB.progress.." | reversed: "..tostring(DB.reverse),
         "Color: "..ColorHex(ResolveColor()).." | opacity: "..math.floor(DB.opacity*100+.5).."% | thickness: "..DB.thickness,
-        "Tint: "..tostring(DB.tint).." | tint opacity: "..math.floor(DB.tintOpacity*100+.5).."%",
+        "Tint: "..tostring(DB.tint).." | tint opacity: "..math.floor(DB.tintOpacity*100+.5).."% | fill: "..DB.fillEffect,
+        "Rising fill fallback buttons: "..fillFallback,
         "Actual progress: "..ProgressSummary(),
         "Energy source: "..lastSource.." | max energy used: "..lastMaxEnergy,
         "Finisher gate: "..tostring(DB.finisherComboOnly).." | "..lastComboSource,
@@ -1165,9 +1222,9 @@ end
 -- Positive distances from the top of the panel; use one shared layout so
 -- controls and section boundaries can be checked together.
 local OPTION_LAYOUT = {
-    thickness=198, tint=240, progress=275, progressButtons=293, progressStatus=322,
-    appearance=347, colors=365, colorLabel=393, opacity=410,
-    preview=463, previewSliders=481, previewIcons=527, previewCosts=580, footer=602,
+    thickness=198, tint=240, fillEffect=274, progress=309, progressButtons=327, progressStatus=356,
+    appearance=381, colors=399, colorLabel=427, opacity=427,
+    preview=477, previewSliders=495, previewIcons=541, previewCosts=594, footer=616,
     sliderOffset=20, sliderHeight=16, buttonHeight=24
 }
 
@@ -1393,7 +1450,7 @@ local function CreateOptions()
         return slider,label
     end
     local syncing=false
-    local opacity,opacityLabel=Slider("Opacity",16,-layout.opacity,15,100,5,function(v) if not syncing then DB.opacity=v/100; ApplySettings() end end)
+    local opacity,opacityLabel=Slider("Opacity",240,-layout.opacity,15,100,5,function(v) if not syncing then DB.opacity=v/100; ApplySettings() end end)
     -- Style-specific settings live immediately below the style selector.
     local thickness,thicknessLabel=Slider("Thickness",16,-layout.thickness,2,8,1,function(v)
         local _,available=StyleOptions(DB.mode)
@@ -1406,7 +1463,15 @@ local function CreateOptions()
         if not syncing and DB.mode=="rising" and DB.tint then DB.tintOpacity=v/100; ApplySettings() end
     end)
     local direction=Button("Reverse direction",240,-layout.thickness,204,function() DB.reverse=not DB.reverse; ApplySettings() end)
-    Button("Reset style",324,-(layout.opacity+14),120,function() ResetAppearance(); ApplySettings() end)
+    Button("Reset style",16,-(layout.opacity+18),120,function() ResetAppearance(); ApplySettings() end)
+    local fillLabel=Label("Fill effect",16,-(layout.fillEffect+5),"GameFontHighlightSmall")
+    local fillButtons={}
+    for i,entry in ipairs({{"solid","Solid"},{"gradient","Gradient"},{"luminous","Luminous"}}) do
+        local key,name=entry[1],entry[2]
+        fillButtons[key]=Button(name,112+(i-1)*110,-layout.fillEffect,106,function()
+            if DB.mode=="rising" and DB.tint then DB.fillEffect=key; ApplySettings() end
+        end)
+    end
     local radialHint=Label("Radial sweep uses color and opacity below.",16,-206,"GameFontHighlightSmall")
     Section("Preview", -layout.preview)
     local previewEnergy=15
@@ -1481,6 +1546,11 @@ local function CreateOptions()
         SetControlAvailable(thickness,thicknessLabel,thicknessAvailable)
         if thicknessAvailable then radialHint:Hide() else radialHint:Show() end
         SetControlAvailable(tintOpacity,tintOpacityLabel,tintAvailable and DB.tint)
+        local showFill=tintAvailable and DB.tint
+        if showFill then fillLabel:Show() else fillLabel:Hide() end
+        for key,b in pairs(fillButtons) do
+            if showFill then b:Show(); SelectButton(b,key==DB.fillEffect) else b:Hide(); b:Disable() end
+        end
         tintOpacity:SetValue(DB.tintOpacity*100)
         tintOpacityLabel:SetText(string.format("Tint opacity: %d%%",math.floor(DB.tintOpacity*100+.5)))
         direction:Enable()
@@ -1522,7 +1592,7 @@ local function OpenOptions()
     else Say("Settings unavailable; use /resweep help.") end
 end
 local function Help()
-    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | resetstyle | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | fill solid/gradient/luminous | resetstyle | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
@@ -1562,6 +1632,9 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     elseif cmd == "progress" and (arg == "energy" or arg == "countdown") then SetProgress(arg)
     elseif cmd == "reverse" then DB.reverse=not DB.reverse
     elseif cmd == "tintopacity" and tonumber(arg) then DB.tintOpacity=math.max(0,math.min(100,tonumber(arg)))/100
+    elseif cmd=="fill" and FILL_EFFECTS[arg] then
+        if DB.mode~="rising" then Say("Fill effects apply to Rising Line only."); return end
+        DB.fillEffect=arg
     elseif cmd == "resetstyle" then ResetAppearance()
     elseif cmd == "thickness" and tonumber(arg) then DB.thickness = math.floor(math.max(2,math.min(8,tonumber(arg)))+0.5)
     elseif cmd == "reset" then RogueEnergySweepDB = {}; InitDB(); ResetProgress(); lastError = "none"; RequestScan()

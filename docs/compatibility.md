@@ -17,7 +17,9 @@ v0.6.1: user confirmed restored radial rendering works. All four energy-based st
 
 Build 71139, interface 16001: user reported all four countdown styles working in v0.7.0. Together with the earlier v0.6.0/v0.6.1 energy-style checks, all eight animation combinations are reported working. The v0.7.0 bottom-bar status showed five tracked buttons, five bars active, a protected snapshot requesting direct ranges, and no historical API error. The progress summary incorrectly displayed `5: 5`; v0.7.1 fixes the label without changing rendering. The full edge-case checklist below has not been completed, and action-bar configuration was not recorded. No fully live-tested build is claimed. The reviewed baseline remains 71091.
 
-## v0.13.0 combined release-candidate checklist
+## v0.14.0 combined release-candidate checklist
+
+- [ ] Test Solid, Gradient and Luminous in both Rising Line directions and both progress modes. Verify tint off, zero tint opacity, partial fill, zero progress and affordability, color changes, reload persistence and no visual spill beyond the icon. Review diagnostic fallback count.
 
 - [ ] Verify v0.11 cooldown filter ignores GCD, restores overlays after real cooldowns, and respects combo gates, category filters and per-spell exclusions. Verify Death Mark and other newly learned spell ranks if available.
 - [ ] Verify target swap, no target and spending the last combo point; test in combat and on a stealth bar.

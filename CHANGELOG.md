@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.14.0
+- Add Solid, Gradient and Luminous Rising Line fill effects, with a gradient following the native fill region and additive blending for Luminous. Reverse direction flips the fade; both progress modes share the same appearance path.
+- Preserve Solid as the default and persist the selected fill effect per style. Contextual settings appear only when Rising Line tint is enabled.
+- Fall back to solid if gradient setup fails; report fallback count in diagnostics. Compact appearance layout to make room for the new controls.
+- Add mocked gradient, direction, migration, fallback and layout tests. Live visual verification pending.
+
 ## v0.13.0
 - Add builder, finisher and Other/utility category filters alongside per-ability exclusions; include Death Mark as a Forever finisher, retain unknown spells in Other.
 - Preserve independent appearance settings per style; migrate old shared settings without changing the selected style. Add per-style reset and confirmation for resetting all settings in options.
