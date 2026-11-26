@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.16.0
+- Add optional standalone Energy Tracker: Dial, Bars, Icons, Freeform and Rings layouts with independent appearance, movable locked/unlocked frames, manual ability selection and action-bar display toggle.
+- Share native energy/cost groups, countdown snapshots and filtering with the original overlays. Dial uses original transparent ring artwork and static cost markers; numeric energy only when public. Add diagnostics and a separate settings window.
+- Tracker disabled by default. Native geometry, layout, placement and performance require live validation.
+
 ## v0.15.0
 - Add global energy-ready effects: native cast burst, cooldown flash, proc glow, halo, custom border, pulse and soft flash. None remains the default.
 - Use a separate native readiness alpha curve and existing ability, combo and cooldown gates. One-shots trigger only from explicitly public transitions (energy or conservative non-finisher power usability); optional pulse fallback for protected transitions.

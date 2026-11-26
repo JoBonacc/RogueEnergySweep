@@ -1,7 +1,8 @@
--- Rogue Energy Sweep 0.15.0 (WoW Forever)
+-- Rogue Energy Sweep 0.16.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
-local ADDON_NAME = ...
+local ADDON_NAME, ns = ...
+local Tracker=ns and ns.Tracker
 local _, playerClass = UnitClass("player")
 if playerClass ~= "ROGUE" then return end
 local ENERGY = Enum and Enum.PowerType and Enum.PowerType.Energy or 3
@@ -152,6 +153,7 @@ local function InitDB()
     end
     SaveAppearance()
     if DB.progress ~= "countdown" then DB.progress = "energy" end
+    if Tracker then Tracker.Init(DB) end
 end
 
 local function RefreshMaxEnergy()
@@ -171,7 +173,9 @@ local function MakeCurve(cost, kind)
             c:SetType(Enum.LuaCurveType.Linear)
         end
         local threshold = math.min(1, cost / lastMaxEnergy)
-        if kind == "visibility" or kind == "ready" then
+        if kind=="dial" then
+            c:AddPoint(0,0); c:AddPoint(1,.75)
+        elseif kind == "visibility" or kind == "ready" then
             local below,above=1,0
             if kind=="ready" then below,above=0,1 end
             if cost > lastMaxEnergy then c:AddPoint(0, below); c:AddPoint(1, below)
@@ -403,6 +407,7 @@ end
 
 local function ClearAll()
     for _, record in pairs(overlays) do Clear(record); if ClearReady then ClearReady(record) end end
+    if Tracker then Tracker.Hide() end
 end
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
@@ -810,21 +815,25 @@ local function RebuildGroups()
     local previous = groups
     groups = {}
     ClearAll()
-    for _, record in ipairs(records) do
-        local cost = record.cost
-        if cost and cost > 0 then
-            local group = groups[cost]
-            if not group then
-                group = previous[cost]
-                if not group or group.maxEnergy ~= lastMaxEnergy then
-                    group = {curve=MakeCurve(cost,"fill"), deficit=MakeCurve(cost,"deficit"), visibility=MakeCurve(cost,"visibility"), maxEnergy=lastMaxEnergy}
-                end
-                group.records = {}
-                groups[cost] = group
+    if Tracker then Tracker.Sync(records,lastMaxEnergy) end
+    local function AddCost(cost)
+        local group=groups[cost]
+        if not group then
+            group=previous[cost]
+            if not group or group.maxEnergy~=lastMaxEnergy then
+                group={curve=MakeCurve(cost,"fill"),deficit=MakeCurve(cost,"deficit"),visibility=MakeCurve(cost,"visibility"),maxEnergy=lastMaxEnergy}
             end
-            group.records[#group.records+1] = record
+            group.records={}; groups[cost]=group
+        end
+        return group
+    end
+    for _,record in ipairs(records) do
+        if record.cost and record.cost>0 then
+            local group=AddCost(record.cost)
+            group.records[#group.records+1]=record
         end
     end
+    if Tracker then for cost in pairs(Tracker.Costs()) do AddCost(cost) end end
 end
 
 local function RegisterButton(button, costs)
@@ -1106,6 +1115,7 @@ local performanceSample={enabled=false,updates=0,total=0,max=0,requests=0,coales
 local function UpdateCore()
     updatePending = false
     if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); if DB and DB.progress=="countdown" then ResetProgress() end; if refreshLiveStatus then refreshLiveStatus() end; return end
+    local trackerActive=Tracker and Tracker.Begin(demo)
     local publicEnergy,triedPublic = nil,false
     local comboAlpha=1
     local gateEnabled=DB.finisherComboOnly and not demo
@@ -1123,7 +1133,7 @@ local function UpdateCore()
             local a,b,c,source
             fill,a,source = Evaluate(group.curve)
             visibility,b = Evaluate(group.visibility)
-            if DB.mode == "radial" or DB.mode == "auto" or DB.progress == "countdown" then deficit,c = Evaluate(group.deficit) else c=true end
+            if trackerActive or DB.mode == "radial" or DB.mode == "auto" or DB.progress == "countdown" then deficit,c = Evaluate(group.deficit) else c=true end
             valid=a and b and c
             if valid then lastSource=source end
             if not valid then
@@ -1139,7 +1149,7 @@ local function UpdateCore()
             end
         end
         local readyAlpha
-        if valid and not demo and DB.readyEffect~="none" then
+        if valid and not demo and (DB.readyEffect~="none" or trackerActive) then
             local public=SafeNumber(visibility)
             if public~=nil then readyAlpha=1-public
             else
@@ -1153,8 +1163,12 @@ local function UpdateCore()
             fill,deficit,countdownOK,source,directRange=Countdown(group,cost,fill,deficit)
             lastSource=source
         end
+        if trackerActive then Tracker.Group(cost,group,fill,deficit,visibility,readyAlpha,valid,directRange,comboAlpha,gateEnabled,cooldowns,cooldownEnabled,demo) end
         for _,record in ipairs(group.records) do
             record.renderError=nil
+            if DB.tracker and DB.tracker.actionBars==false and not demo then
+                Clear(record); ClearReady(record); record.progressState="tracker only"
+            else
             local comboOK=ApplyComboGate(record,comboAlpha,gateEnabled)
             if not comboOK then lastComboSource="native gate rejected" end
             local excluded=not demo and IsExcluded(record)
@@ -1198,8 +1212,10 @@ local function UpdateCore()
                     if not rendered and not record.mode then record.progressState="unavailable" end
                 end
             else Clear(record); ClearReady(record); record.progressState="unavailable"; lastSource="energy unavailable" end
+            end
         end
     end
+    if trackerActive then Tracker.Finish(demo) end
     if refreshLiveStatus then refreshLiveStatus() end
 end
 
@@ -1329,7 +1345,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.15.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.16.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -1381,7 +1397,7 @@ local function DiagnosticReport()
         for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
     end
     local lines={
-        "Rogue Energy Sweep v0.15.0 diagnostic report",
+        "Rogue Energy Sweep v0.16.0 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
@@ -1394,6 +1410,7 @@ local function DiagnosticReport()
         "Rising fill fallback buttons: "..fillFallback,
         "Ready effect: "..DB.readyEffect.." | intensity: "..math.floor(DB.readyOpacity*100+.5).."% | match color: "..tostring(DB.readyMatchColor).." | pulse fallback: "..tostring(DB.readyFallback),
         "Ready paths: "..Counts(readyActuals),
+        "Tracker: "..(Tracker and Tracker.Status() or "module unavailable"),
         "Ready signals: "..Counts(readySources),
         "Actual progress: "..ProgressSummary(),
         "Energy source: "..lastSource.." | max energy used: "..lastMaxEnergy,
@@ -1462,6 +1479,7 @@ local optionsPanel, settingsCategory, refreshPanel, refreshAbilityFilters, abili
 local readyOptions,refreshReadyOptions
 local function ApplySettings()
     SaveAppearance()
+    if Tracker and Tracker.Sync(records,lastMaxEnergy) then RebuildGroups() end
     for _,record in pairs(overlays) do Style(record) end
     Update()
     if refreshPanel then refreshPanel() end
@@ -1751,6 +1769,7 @@ local function CreateOptions()
     progressButtons.energy=Button("Energy-based",16,-layout.progressButtons,132,function() SetProgress("energy"); ApplySettings() end)
     progressButtons.countdown=Button("Countdown",156,-layout.progressButtons,132,function() SetProgress("countdown"); ApplySettings() end)
     local readyButton=Button("Ready effects...",300,-layout.progressButtons,144,OpenReadyOptions)
+    if Tracker then Button("Energy Tracker...",304,-18,140,function() Tracker.Open() end) end
     local liveStatus=Label("Countdown starts after spending energy (experimental).",16,-layout.progressStatus,"GameFontHighlightSmall")
     local previousStatus
     refreshLiveStatus=function()
@@ -1949,7 +1968,7 @@ local function OpenOptions()
     else Say("Settings unavailable; use /resweep help.") end
 end
 local function Help()
-    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | fill solid/gradient/luminous | ready none/burst/flash/proc/halo/border/pulse/softflash | resetstyle | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | fill solid/gradient/luminous | ready none/burst/flash/proc/halo/border/pulse/softflash | tracker | resetstyle | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
@@ -1959,6 +1978,9 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     elseif cmd == "status" then Status(); return
     elseif cmd == "filters" then OpenAbilityFilters(); return
     elseif cmd == "diagnostics" then OpenDiagnostics(); return
+    elseif cmd=="tracker" and Tracker then
+        if arg=="" then Tracker.Open(); return end
+        if not Tracker.Command(arg) then Help(); return end
     elseif cmd=="ready" then
         if arg=="" then OpenReadyOptions(); return end
         if not READY_EFFECTS[arg] then Help(); return end
@@ -2001,6 +2023,35 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     elseif cmd == "reset" then RogueEnergySweepDB = {}; InitDB(); ResetProgress(); lastError = "none"; RequestScan()
     else Help(); return end
     ApplySettings()
+end
+
+-- Appearance-only proxy: the tracker reuses the exact native icon renderer
+-- without modifying saved action-bar settings or changing the shared progress state.
+if Tracker then
+    local function WithTrackerAppearance(fn,...)
+        local original=DB
+        local appearance=Tracker.Appearance()
+        DB=setmetatable(appearance,{__index=original})
+        local ok,a,b=pcall(fn,...)
+        DB=original
+        if not ok then error(a) end
+        return a,b
+    end
+    Tracker.Configure({
+        safe=SafeNumber,secret=IsSecret,excluded=IsExcluded,
+        curve=MakeCurve,evaluate=Evaluate,cooldown=CooldownAlpha,
+        make=function(button) return WithTrackerAppearance(MakeOverlay,button,true) end,
+        style=function(record) return WithTrackerAppearance(Style,record) end,
+        paint=function(record,fill,deficit,visibility,group,direct)
+            if direct and WithTrackerAppearance(PaintDirect,record,fill,deficit,visibility,group) then return true end
+            return WithTrackerAppearance(Paint,record,fill,deficit,visibility)
+        end,
+        clear=Clear,clearReady=ClearReady,
+        ready=function(record,alpha,eligible) return WithTrackerAppearance(SafeUpdateReady,record,alpha,eligible,false) end,
+        apply=ApplySettings,update=Update,
+        cost=GetEnergyCost,category=SpellCategory,
+        say=Say,
+    })
 end
 
 local events = CreateFrame("Frame")

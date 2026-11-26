@@ -1,4 +1,4 @@
-# Rogue Energy Sweep v0.15.0 — release candidate
+# Rogue Energy Sweep v0.16.0 — release candidate
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
@@ -65,3 +65,6 @@ Countdown implementation: public energy uses changes in the energy fraction to d
 Historical validation of v0.3.0 (not rerun for v0.4.0): 26 simulated Lua tests passed in a Lua 5.4 runtime, including existing action discovery behavior, all four modes with simulated secret values, clearing at readiness, options registration and controls, settings updates, preview thresholds, both progress modes, protected snapshot normalization, restart behavior, and safe fallback. This is not a live-client test.
 
 Adapted from [Rogue Energy Need](https://www.curseforge.com/wow/addons/rogue-energy-need) 0.2.1 by Vryllak / Rogue Energy Need contributors, MIT licensed. Original license included. Separate experimental derivative, not an official Rogue Energy Need release.
+
+## Energy Tracker
+Open **Energy Tracker...** or `/resweep tracker`. Enable the optional standalone display, choose Dial, Bars, Icons, Freeform or Rings, and optionally disable action-bar overlays. Unlock to move the group; Freeform supports dragging individual icons. Settings include size, scale, spacing, color, opacity, cost labels, bar names, selection, ready effects, and hiding affordable rows (except Dial, which retains markers). Icons have independent animation style; ability progress inherits the global energy/countdown choice. Dial always shows actual energy, with static cost markers and native radial progress. Numeric energy is shown only when publicly readable. Ability selection is based on discovered action-bar spells; manually selected off-page spells are retained when still known. Existing filters apply to both displays. Native radial alignment and visual behavior require live testing. No clicks cast spells; locked frames do not receive mouse input.

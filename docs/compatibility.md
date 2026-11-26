@@ -42,3 +42,8 @@ Run after every client patch or rendering change:
 - [ ] Record any fallback or missing API. Native snapshot status does not prove correct rendering.
 
 Only after all relevant checks pass, record build, addon version, date, client configuration and results here and update LAST_TESTED_BUILD in Lua in a subsequent release. A reviewed build is not a tested build. The automated tests mock API contracts and cannot prove secret-value acceptance or taint safety in WoW.
+
+## v0.16.0 tracker checklist
+- [ ] Enable tracker, test all five layouts, drag group and freeform icons, lock, reload, disable action bars and restore them.
+- [ ] Verify Dial alignment at public known thresholds, 0 and maximum; verify fallback and secret values in combat. Check duplicate/close-cost markers and high UI scale.
+- [ ] Verify bar/ring/icon energy and countdown modes, selection, filters, ready effects, stealth/page swaps, cost changes, persistence, mouse transparency and performance.
