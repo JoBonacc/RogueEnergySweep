@@ -80,3 +80,49 @@ env2.DB.mode="bar"; rec.bar.reject=true
 assert(not paintDirect(rec,secret,secret,secret,snapshot)); assert(rec.renderError:find("rejected protected range",1,true))
 assert(paint(rec,.4,.6,1) and rec.bar.lo==0 and rec.bar.value==.4)
 print("PASS: direct native ranges, public range restoration, radial selection and rejected range fallback")
+
+-- Perimeter uses four clipped copies of the full range; check public geometry
+-- and native range forwarding independently from the client visual engine.
+local function layoutWidget()
+    local w=widget()
+    function w:EnableMouse() end
+    function w:SetAllPoints(relative) self.relative=relative end
+    function w:SetClipsChildren(v) self.clips=v end
+    function w:ClearAllPoints() self.anchor=nil end
+    function w:SetSize(x,y) self.width=x; self.height=y end
+    function w:SetPoint(p,r,rp,x,y) self.anchor={p,rp,x,y} end
+    return w
+end
+env2.CreateFrame=function() return layoutWidget() end
+env2.NewBar=function(parent,lo,hi,orientation,reverse)
+    local w=layoutWidget(); w.orientation=orientation; w.reverse=reverse; w.parent=parent; return w
+end
+env2.Style=function() end
+rec.frame.GetWidth=function() return 40 end
+rec.frame.GetHeight=function() return 36 end
+env2.DB.mode="perimeter"
+assert(paintDirect(rec,secret,secret,secret,snapshot))
+for i=1,4 do
+    assert(rec.countdownClips[i].clips and rec.countdownClips[i].shown)
+    assert(rawequal(rec.countdownEdges[i].lo,secret) and rawequal(rec.countdownEdges[i].value,secret))
+end
+assert(rec.countdownEdges[1].width==160 and rec.countdownEdges[1].anchor[3]==0)
+assert(rec.countdownEdges[2].height==144 and rec.countdownEdges[2].anchor[4]==36)
+assert(rec.countdownEdges[3].anchor[3]==80 and rec.countdownEdges[4].anchor[4]==-108)
+assert(paint(rec,.5,.5,1))
+for i=1,4 do assert(not rec.countdownClips[i].shown and rec.edges[i].shown) end
+rec.countdownClips=nil; rec.countdownEdges=nil; rec.countdownLayout=nil
+env2.CreateFrame=function() local w=layoutWidget(); w.SetClipsChildren=nil; return w end
+assert(not paintDirect(rec,secret,secret,secret,snapshot))
+assert(paint(rec,.5,.5,1))
+-- Protected snapshot is retained until a subsequent generation, and is never
+-- read back from a texture or used in Lua arithmetic.
+env.UnitPowerPercent=function() return secret end
+env.progressGeneration=1
+local sg={startFillCurve={},startDeficitCurve={}}
+local pf,pd,success,source,direct=countdown(sg,45,secret,secret)
+assert(success and direct and sg.generation==1 and rawequal(sg.start,secret) and rawequal(pf,secret))
+env.progressGeneration=2
+pf,pd,success,source,direct=countdown(sg,45,secret,secret)
+assert(success and direct and sg.generation==2 and rawequal(pd,secret))
+print("PASS: protected snapshot generation, clipped perimeter geometry, missing clipping fallback")

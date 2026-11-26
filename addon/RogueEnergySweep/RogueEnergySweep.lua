@@ -548,7 +548,7 @@ local function Countdown(group, cost, fill, deficit)
         local p=math.max(0,math.min(1,(public-group.start)/(1-group.start)))
         return p,1-p,true,"countdown (public)"
     elseif group.startValid then
-        return fill,deficit,true,"countdown (native direct range)",true
+        return fill,deficit,true,"protected snapshot (direct range requested)",true
     end
     return fill,deficit,false,"energy fallback (countdown unavailable)"
 end
@@ -609,7 +609,7 @@ local function Update()
                         end
                         record.renderError=record.failedError
                         Paint(record,fill,deficit,visibility)
-                        record.progressState="energy fallback"
+                        record.progressState=record.mode and "energy fallback" or "unavailable"
                     end
                 else
                     local rendered=Paint(record,fill,deficit,visibility)
