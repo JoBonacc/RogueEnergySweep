@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.9.0 (WoW Forever)
+-- Rogue Energy Sweep 0.10.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -847,7 +847,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.9.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.10.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -868,6 +868,15 @@ local function ApplySettings()
     if refreshPanel then refreshPanel() end
 end
 
+-- Keep options availability separate from saved preferences.
+local function StyleOptions(mode)
+    return mode=="rising", mode=="rising" or mode=="bar" or mode=="perimeter"
+end
+local function SetControlAvailable(control,label,available)
+    if available then control:Enable(); control:Show(); label:Show()
+    else control:Disable(); control:Hide(); label:Hide() end
+end
+
 local function CreateOptions()
     if optionsPanel then return end
     local panel=CreateFrame("Frame","RogueEnergySweepOptionsPanel")
@@ -884,26 +893,45 @@ local function CreateOptions()
     local function Check(text,x,y,click)
         local b=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate")
         b:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); b:SetSize(24,24)
-        Label(text,x+32,y-8,"GameFontHighlight")
+        local label=Label(text,x+28,y-6,"GameFontHighlight")
         b:SetScript("OnClick",function(self) click(self:GetChecked() and true or false); ApplySettings() end)
-        return b
+        -- The label is also a click target.
+        local hit=CreateFrame("Button",nil,panel)
+        hit:SetPoint("TOPLEFT",label,"TOPLEFT",-2,3)
+        hit:SetPoint("BOTTOMRIGHT",label,"BOTTOMRIGHT",3,-3)
+        hit:SetScript("OnClick",function() if b:IsEnabled() then b:Click() end end)
+        b.optionLabelHit=hit
+        return b,label
     end
-    Label("Rogue Energy Sweep",16,-16,"GameFontNormalLarge")
-    Label("Track energy readiness directly on action buttons.",16,-42,"GameFontHighlight")
-    local enabled=Check("Enable overlays",16,-65,function(v) DB.enabled=v; if v then RequestScan() end end)
-    local combat=Check("Only in combat",225,-65,function(v) DB.combatOnly=v end)
-    local comboOnly=Check("Finishers only with combo points on target",16,-88,function(v) DB.finisherComboOnly=v end)
-    Label("Indicator style",16,-115)
+    local function Section(text,y)
+        local line=panel:CreateTexture(nil,"ARTWORK")
+        line:SetPoint("TOPLEFT",panel,"TOPLEFT",16,y+7)
+        line:SetSize(428,1); line:SetColorTexture(0.52,0.45,0.30,0.45)
+        return Label(text,16,y,"GameFontNormal")
+    end
+    local function SelectButton(b,selected)
+        if b.LockHighlight and b.UnlockHighlight then
+            b:Enable()
+            if selected then b:LockHighlight() else b:UnlockHighlight() end
+        elseif selected then b:Disable() else b:Enable() end
+    end
+    Label("Rogue Energy Sweep",16,-12,"GameFontNormalLarge")
+    Label("Customize energy readiness on your action bars.",16,-32,"GameFontHighlightSmall")
+    Section("Behavior", -52)
+    local enabled=Check("Enable overlays",16,-68,function(v) DB.enabled=v; if v then RequestScan() end end)
+    local combat=Check("Only in combat",225,-68,function(v) DB.combatOnly=v end)
+    local comboOnly=Check("Finishers only with combo points on target",16,-91,function(v) DB.finisherComboOnly=v end)
+    Section("Animation style", -122)
     local modes={}
     for i,entry in ipairs({{"rising","Rising line"},{"bar","Bottom bar"},{"perimeter","Perimeter"},{"radial","Radial sweep"}}) do
         local key,text=entry[1],entry[2]
-        modes[key]=Button(text,16+(i-1)*110,-135,106,function() DB.mode=key; ApplySettings() end)
+        modes[key]=Button(text,16+(i-1)*110,-140,106,function() if DB.mode~=key then DB.mode=key; ApplySettings() end end)
     end
-    Label("Progress mode",16,-161)
+    Section("Progress mode", -215)
     local progressButtons={}
-    progressButtons.energy=Button("Energy-based",16,-181,132,function() SetProgress("energy"); ApplySettings() end)
-    progressButtons.countdown=Button("Countdown",156,-181,132,function() SetProgress("countdown"); ApplySettings() end)
-    local liveStatus=Label("Countdown starts after spending energy (experimental).",16,-208,"GameFontHighlightSmall")
+    progressButtons.energy=Button("Energy-based",16,-233,132,function() SetProgress("energy"); ApplySettings() end)
+    progressButtons.countdown=Button("Countdown",156,-233,132,function() SetProgress("countdown"); ApplySettings() end)
+    local liveStatus=Label("Countdown starts after spending energy (experimental).",16,-261,"GameFontHighlightSmall")
     local previousStatus
     refreshLiveStatus=function()
         if DB.progress~="countdown" then
@@ -915,11 +943,11 @@ local function CreateOptions()
         if states["energy fallback"] or states.unavailable then message="|cffffaa44"..message.."|r" end
         if previousStatus~=message then liveStatus:SetText(message); previousStatus=message end
     end
-    Label("Indicator color",16,-232)
+    Section("Appearance", -286)
     local colors,selectedMarks={},{}
     for i,entry in ipairs(PRESETS) do
         local key,name=entry[1],entry[2]
-        local b=Button("",16+(i-1)*35,-251,32,function() DB.color=key; ApplySettings() end)
+        local b=Button("",16+(i-1)*35,-304,32,function() DB.color=key; ApplySettings() end)
         colors[key]=b
         local swatch=b:CreateTexture(nil,"ARTWORK")
         swatch:SetPoint("TOPLEFT",b,"TOPLEFT",5,-4)
@@ -939,12 +967,12 @@ local function CreateOptions()
         end)
         b:SetScript("OnLeave",function() GameTooltip:Hide() end)
     end
-    local custom=Button("Custom...",304,-251,140,function()
+    local custom=Button("Custom...",304,-304,140,function()
         if not OpenCustomColorPicker(ApplySettings) then Say("Color picker unavailable. Use /resweep color #RRGGBB.") end
     end)
     local customSwatch=custom:CreateTexture(nil,"OVERLAY")
     customSwatch:SetSize(13,13); customSwatch:SetPoint("LEFT",custom,"LEFT",10,0)
-    local colorLabel=Label("",16,-278,"GameFontHighlightSmall")
+    local colorLabel=Label("",16,-332,"GameFontHighlightSmall")
     local function Slider(name,x,y,low,high,step,callback)
         local label=Label(name,x,y)
         local sliderName="RogueEnergySweep"..name.."Slider"
@@ -957,31 +985,43 @@ local function CreateOptions()
         return slider,label
     end
     local syncing=false
-    local opacity,opacityLabel=Slider("Opacity",16,-303,15,100,5,function(v) if not syncing then DB.opacity=v/100; ApplySettings() end end)
-    local thickness,thicknessLabel=Slider("Thickness",240,-303,2,8,1,function(v) if not syncing then DB.thickness=v; ApplySettings() end end)
-    local tint=Check("Tint the filled area (rising line)",16,-351,function(v) DB.tint=v end)
-    Label("Live preview  |  simulated energy",16,-386)
+    local opacity,opacityLabel=Slider("Opacity",16,-349,15,100,5,function(v) if not syncing then DB.opacity=v/100; ApplySettings() end end)
+    -- Style-specific settings live immediately below the style selector.
+    local thickness,thicknessLabel=Slider("Thickness",16,-171,2,8,1,function(v)
+        local _,available=StyleOptions(DB.mode)
+        if not syncing and available then DB.thickness=v; ApplySettings() end
+    end)
+    local tint,tintLabel=Check("Tint filled area",240,-179,function(v)
+        if DB.mode=="rising" then DB.tint=v end
+    end)
+    local radialHint=Label("Radial sweep uses color and opacity below.",16,-178,"GameFontHighlightSmall")
+    Section("Preview", -393)
     local previewEnergy=15
     local previewRecords={}
     local previewStart=15
-    local previewSlider,previewLabel=Slider("Energy",16,-410,0,100,1,function(v) if not syncing then previewEnergy=v; if refreshPanel then refreshPanel() end end end)
-    local previewStartSlider,previewStartLabel=Slider("StartEnergy",240,-410,0,100,1,function(v) if not syncing then previewStart=v; if refreshPanel then refreshPanel() end end end)
+    local previewSlider,previewLabel=Slider("Energy",16,-411,0,100,1,function(v) if not syncing then previewEnergy=v; if refreshPanel then refreshPanel() end end end)
+    local previewStartSlider,previewStartLabel=Slider("StartEnergy",240,-411,0,100,1,function(v) if not syncing then previewStart=v; if refreshPanel then refreshPanel() end end end)
     for i,entry in ipairs({{45,"Interface\\Icons\\Spell_Shadow_RitualOfSacrifice"},{35,"Interface\\Icons\\Ability_Rogue_Eviscerate"},{25,"Interface\\Icons\\Ability_Kick"}}) do
         local button=CreateFrame("Frame",nil,panel)
-        button:SetSize(48,48); button:SetPoint("TOPLEFT",panel,"TOPLEFT",16+(i-1)*82,-455)
+        button:SetSize(48,48); button:SetPoint("TOPLEFT",panel,"TOPLEFT",16+(i-1)*82,-451)
         button.icon=button:CreateTexture(nil,"BACKGROUND"); button.icon:SetAllPoints(button); button.icon:SetTexture(entry[2])
         local record=MakeOverlay(button,true)
         record.previewCost=entry[1]; previewRecords[#previewRecords+1]=record
-        Label(tostring(entry[1]).." energy",16+(i-1)*82,-508,"GameFontHighlightSmall")
+        Label(tostring(entry[1]).." energy",16+(i-1)*82,-503,"GameFontHighlightSmall")
     end
-    Button("Test on bars",16,-535,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
-    Button("Reset defaults",145,-535,120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
+    Button("Test on bars",16,-525,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
+    Button("Reset defaults",324,-525,120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
     refreshPanel=function()
         refreshLiveStatus()
         syncing=true
         enabled:SetChecked(DB.enabled); combat:SetChecked(DB.combatOnly); tint:SetChecked(DB.tint); comboOnly:SetChecked(DB.finisherComboOnly)
-        for key,b in pairs(modes) do if key==DB.mode then b:Disable() else b:Enable() end end
-        for key,b in pairs(progressButtons) do if key==DB.progress then b:Disable() else b:Enable() end end
+        for key,b in pairs(modes) do SelectButton(b,key==DB.mode) end
+        for key,b in pairs(progressButtons) do SelectButton(b,key==DB.progress) end
+        local tintAvailable,thicknessAvailable=StyleOptions(DB.mode)
+        SetControlAvailable(tint,tintLabel,tintAvailable)
+        if tintAvailable then tint.optionLabelHit:Show() else tint.optionLabelHit:Hide() end
+        SetControlAvailable(thickness,thicknessLabel,thicknessAvailable)
+        if thicknessAvailable then radialHint:Hide() else radialHint:Show() end
         for key,b in pairs(colors) do
             if key==DB.color then selectedMarks[key]:Show() else selectedMarks[key]:Hide() end
         end
@@ -992,10 +1032,10 @@ local function CreateOptions()
         colorLabel:SetText(name.."  "..ColorHex(c)..(DB.color=="black" and "  (linear styles use white)" or ""))
         opacity:SetValue(DB.opacity*100); thickness:SetValue(DB.thickness); previewSlider:SetValue(previewEnergy); previewStartSlider:SetValue(previewStart)
         opacityLabel:SetText(string.format("Opacity: %d%%",math.floor(DB.opacity*100+0.5)))
-        thicknessLabel:SetText(string.format("Thickness: %d px",DB.thickness))
+        thicknessLabel:SetText(string.format("%s thickness: %d px",DB.mode=="bar" and "Bar" or DB.mode=="perimeter" and "Border" or "Line",DB.thickness))
         previewLabel:SetText(string.format("Energy: %d / 100",previewEnergy))
         previewStartLabel:SetText(string.format("Post-spend start: %d",previewStart))
-        if DB.progress=="countdown" then previewStartSlider:Show(); previewStartLabel:Show() else previewStartSlider:Hide(); previewStartLabel:Hide() end
+        SetControlAvailable(previewStartSlider,previewStartLabel,DB.progress=="countdown")
         for _,record in ipairs(previewRecords) do
             Style(record)
             local fill=math.min(1,previewEnergy/record.previewCost)

@@ -1,8 +1,8 @@
-# Rogue Energy Sweep v0.9.0 — experimental
+# Rogue Energy Sweep v0.10.0 — experimental
 Target: World of Warcraft: Forever 1.60.1, Interface 16001.
 
 ## Installation and options
-Replace the old `RogueEnergySweep` folder under `Interface/AddOns/` with the folder in this ZIP. Your saved variables are retained. Reload the UI (or restart the client), log into a Rogue, and type `/resweep` to open the options panel. The panel is also registered under Settings > AddOns > Rogue Energy Sweep. All settings apply immediately and persist across reloads.
+Replace the old `RogueEnergySweep` folder under `Interface/AddOns/` with the folder in this ZIP. Your saved variables are retained. Reload the UI (or restart the client), log into a Rogue, and type `/resweep` to open the options panel. The panel is also registered under Settings > AddOns > Rogue Energy Sweep. All settings apply immediately and persist across reloads. Settings are grouped into Behavior, Animation style, Progress mode, Appearance and Preview. Tint is shown only for Rising Line; thickness is shown for Rising Line, Bottom Bar and Perimeter, not Radial Sweep. Hidden controls preserve their saved values.
 
 ## Four indicator styles
 - Rising line: a bright horizontal stripe rises up the icon; optional faint tint below it. Default for new installations and former Auto mode. If the fill-edge anchor is unavailable, a vertical fill is used instead.

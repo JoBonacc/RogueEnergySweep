@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.10.0
+- Group options into Behavior, Animation style, Progress mode, Appearance and Preview with section dividers.
+- Move style-specific controls below the style selector; hide and disable tint outside Rising Line and thickness for Radial Sweep. Preserve saved values when switching styles.
+- Highlight selected style and progress buttons; make checkbox labels clickable, and keep preview controls contextual.
+- Add mocked contextual-control tests. Rendering behavior is unchanged; live layout verification pending.
+
 ## v0.9.0
 - Optional target combo-point filter for finisher overlays across all styles and progress modes. Defaults off; demo and simulated preview bypass it.
 - Detect ranked finishers and required combo-point power costs; refresh on target and combo-point changes. Use target-specific API, fail closed when unavailable, and report gate source in status.

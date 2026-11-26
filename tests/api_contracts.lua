@@ -203,3 +203,20 @@ assert(src:find('"PLAYER_TARGET_CHANGED","COMBO_TARGET_CHANGED"',1,true))
 assert(src:find('power=="COMBO_POINTS"',1,true))
 assert(src:find('DB.finisherComboOnly and not demo',1,true))
 print("PASS: finisher detection, target-only combo gate, secret alpha forwarding and fail-closed behavior")
+
+-- Verify context-sensitive controls remain unavailable for unrelated modes.
+local optCode=section("local function StyleOptions","local function CreateOptions")
+local styleOptions,available=assert(load(optCode.."\nreturn StyleOptions,SetControlAvailable","options mocks","t",_G))()
+for _,case in ipairs({{"rising",true,true},{"bar",false,true},{"perimeter",false,true},{"radial",false,false}}) do
+    local tint,thickness=styleOptions(case[1]); assert(tint==case[2] and thickness==case[3])
+end
+local function optionWidget()
+    return {Enable=function(self) self.enabled=true end,Disable=function(self) self.enabled=false end,Show=function(self) self.visible=true end,Hide=function(self) self.visible=false end}
+end
+local control,label=optionWidget(),optionWidget()
+available(control,label,false); assert(control.enabled==false and control.visible==false and label.visible==false)
+available(control,label,true); assert(control.enabled and control.visible and label.visible)
+assert(src:find("SetControlAvailable(tint,tintLabel,tintAvailable)",1,true))
+assert(src:find("SetControlAvailable(thickness,thicknessLabel,thicknessAvailable)",1,true))
+assert(src:find('if DB.mode=="rising" then DB.tint=v end',1,true))
+print("PASS: context-sensitive options availability and guarded tint changes")
