@@ -923,6 +923,7 @@ local function RefreshCosts()
         record.category=SpellCategory(record.spellID,entry.finisher)
         if entry.cost ~= record.cost then record.cost = entry.cost; changed = true end
     end
+    if Tracker and Tracker.Sync(records,lastMaxEnergy) then changed=true end
     if changed then RebuildGroups() end
 end
 
@@ -1133,7 +1134,9 @@ local function UpdateCore()
             local a,b,c,source
             fill,a,source = Evaluate(group.curve)
             visibility,b = Evaluate(group.visibility)
-            if trackerActive or DB.mode == "radial" or DB.mode == "auto" or DB.progress == "countdown" then deficit,c = Evaluate(group.deficit) else c=true end
+            if DB.mode == "radial" or DB.mode == "auto" or DB.progress == "countdown" then deficit,c = Evaluate(group.deficit)
+            elseif trackerActive then deficit=Evaluate(group.deficit); c=true
+            else c=true end
             valid=a and b and c
             if valid then lastSource=source end
             if not valid then

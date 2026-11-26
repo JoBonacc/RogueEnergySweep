@@ -461,3 +461,63 @@ assert(ts:find("pcall(row.combo.SetAlpha,row.combo,c)",1,true))
 assert(ts:find("pcall(dial.fill.SetRadialProgressBarPercent,dial.fill,value)",1,true))
 print("PASS: tracker dial native curve, public threshold geometry, selection and shared group wiring")
 assert(loadfile("addon/RogueEnergySweep/Tracker.lua"))
+
+local trackerNS={}
+local frames={}
+local function trackerWidget(parent,kind,name)
+    local w={parent=parent,kind=kind,name=name,shown=false,alpha=1,points={},children={},scripts={},scale=1}
+    if parent and parent.children then parent.children[#parent.children+1]=w end
+    for _,method in ipairs({"SetMovable","SetClampedToScreen","RegisterForDrag","SetFrameStrata","SetFrameLevel","SetDrawLayer","SetBlendMode","SetVertexColor","SetColorTexture","SetStatusBarColor","SetStatusBarTexture","SetRenderMode","SetRadialProgressBarReverse","SetRadialProgressBarPercent","SetMinMaxValues","SetValue","SetText","SetWidth","SetHeight","SetTexture","SetAllPoints","SetPoint","SetSize","ClearAllPoints","EnableMouse","SetScale","StartMoving","StopMovingOrSizing"}) do
+        w[method]=function(self,...) self[method.."Args"]={...} end
+    end
+    function w:SetScript(k,v) self.scripts[k]=v end
+    function w:GetFrameLevel() return 1 end
+    function w:GetCenter() return 0,0 end
+    function w:GetEffectiveScale() return 1 end
+    function w:GetName() return self.name end
+    function w:SetAlpha(v) self.alpha=v end
+    function w:Show() self.shown=true end
+    function w:Hide() self.shown=false end
+    function w:IsShown() return self.shown end
+    function w:SetShown(v) self.shown=v end
+    function w:CreateTexture() return trackerWidget(self,"Texture") end
+    function w:CreateFontString() return trackerWidget(self,"FontString") end
+    return w
+end
+local ui=trackerWidget(nil,"UIParent")
+local trackerEnv=setmetatable({UIParent=ui,unpack=table.unpack,issecretvalue=env.issecretvalue,
+    C_Spell={GetSpellInfo=function(id) return {name="Ability "..id,iconID=id+100} end},
+    UnitPower=function() return secret end,
+    CreateFrame=function(kind,name,parent) local w=trackerWidget(parent,kind,name); frames[#frames+1]=w; return w end
+},{__index=_G})
+assert(loadfile("addon/RogueEnergySweep/Tracker.lua","t",trackerEnv))("RogueEnergySweep",trackerNS)
+local tracker=trackerNS.Tracker
+local paints,readies=0,0
+tracker.Configure({safe=function(v) if rawequal(v,secret) then return nil end; if type(v)=="number" then return v end end,
+    secret=env.issecretvalue,excluded=function() return false end,
+    cost=function() return 35,true,true,true end,category=function() return "finisher" end,
+    curve=function(cost,kind) return {cost=cost,kind=kind} end,
+    evaluate=function() return secret,true end,
+    make=function(button) return {button=button} end,
+    style=function() end,clear=function() end,clearReady=function() end,
+    ready=function(_,alpha) assert(rawequal(alpha,secret)); readies=readies+1 end,
+    paint=function(_,fill,deficit,visibility,group,direct) assert(rawequal(fill,secret) and rawequal(visibility,secret)); paints=paints+1 end,
+    cooldown=function() return secret,"native" end})
+local trackerDB={readyEffect="none"}
+tracker.Init(trackerDB)
+assert(trackerDB.tracker.enabled==false and trackerDB.tracker.actionBars==true)
+local tracked={{spellID=1,cost=35,finisher=true,category="finisher"},{spellID=2,cost=35,category="builder"},{spellID=3,cost=45,category="builder"}}
+tracker.Command("dial"); assert(tracker.Sync(tracked,100)); assert(tracker.Begin(false))
+assert(tracker.Costs()[35] and tracker.Costs()[45])
+tracker.Group(35,{start=secret},secret,secret,secret,secret,true,true,secret,true,{},true,false)
+tracker.Finish(false); assert(tracker.Status():find("native radial",1,true) and tracker.Status():find("last error none",1,true))
+for _,layoutName in ipairs({"bars","rings","icons","freeform"}) do
+    tracker.Command(layoutName); assert(tracker.Sync(tracked,100)); assert(tracker.Begin(false))
+    tracker.Group(35,{start=secret},secret,secret,secret,secret,true,true,secret,true,{},true,false)
+    assert(tracker.Status():find("last error none",1,true))
+end
+assert(paints==4 and readies==10)
+trackerDB.tracker.auto=false; trackerDB.tracker.selected[1]=true
+assert(tracker.Sync({tracked[3]},100)); assert(tracker.Costs()[35] and not tracker.Costs()[45])
+tracker.Command("off"); assert(tracker.Sync(tracked,100)); assert(not tracker.Begin(false) and trackerDB.tracker.actionBars)
+print("PASS: all five tracker layouts, protected group forwarding, manual selection, ready effects and disabled lifecycle")

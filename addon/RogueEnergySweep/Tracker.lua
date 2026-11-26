@@ -6,6 +6,7 @@ ns.Tracker=T
 local api,db,cfg,root,panel,refresh,signature
 local catalog,rows,byCost,costs,pool={},{},{},{},{}
 local dial,maximum,active,lastError,source=nil,100,false,"none","not evaluated"
+local layoutOK=false
 local WHITE="Interface\\Buttons\\WHITE8X8"
 local DIAL="Interface\\AddOns\\RogueEnergySweep\\TrackerDial"
 local RING="Interface\\AddOns\\RogueEnergySweep\\TrackerRing"
@@ -18,7 +19,7 @@ local function number(v,default,lo,hi)
 end
 local function Normalize(c)
     c=type(c)=="table" and c or {}
-    c.enabled=c.enabled==true; c.actionBars=c.actionBars~=false
+    c.enabled=c.enabled==true; c.actionBars=not c.enabled or c.actionBars~=false
     c.layout=layouts[c.layout] and c.layout or "dial"
     c.iconMode=modes[c.iconMode] and c.iconMode or "rising"
     c.color=colors[c.color] and c.color or "amber"
@@ -152,7 +153,7 @@ local function EnsureRoot()
     root=Frame(UIParent); root:SetFrameStrata("MEDIUM"); root:SetMovable(true); root:SetClampedToScreen(true)
     root:RegisterForDrag("LeftButton")
     root:SetScript("OnDragStart",function(self) if not cfg.locked then self:StartMoving() end end)
-    root:SetScript("OnDragStop",function(self) self:StopMovingOrSizing(); SaveRoot() end)
+    root:SetScript("OnDragStop",function(self) self:StopMovingOrSizing(); SaveRoot(); PositionRoot() end)
     root.handle=Label(root,"ENERGY TRACKER  •  drag to move","GameFontNormalSmall")
     root.handle:SetPoint("TOP",root,"TOP",0,12)
     root.back=Texture(root,WHITE,"BACKGROUND"); root.back:SetAllPoints(root); root.back:SetVertexColor(.08,.07,.05,.5); root.back:Hide()
@@ -182,8 +183,9 @@ local function NewRow(index)
     local row={frame=frame,cooldown=cooldown,combo=combo}
     row.icon=MakeIcon(combo)
     row.overlay=api.make(row.icon)
-    row.bright=Texture(row.icon,WHITE,"OVERLAY"); row.bright:SetAllPoints(row.icon); row.bright:SetBlendMode("ADD"); row.bright:Hide()
-    row.name=Label(combo,""); row.costLabel=Label(combo,"")
+    row.bright=Texture(row.icon,WHITE,"OVERLAY"); row.bright:SetAllPoints(row.icon); row.bright:Hide()
+    row.labels=Frame(combo); row.labels:SetAllPoints(combo); row.labels:SetFrameLevel(combo:GetFrameLevel()+8)
+    row.name=Label(row.labels,""); row.costLabel=Label(row.labels,"")
     row.track=Texture(combo,WHITE,"BACKGROUND"); row.track:SetVertexColor(.11,.11,.11,.8)
     row.bar=Bar(combo)
     row.ringTrack=Texture(combo,RING,"BACKGROUND"); row.ringTrack:SetVertexColor(.26,.23,.17,.8)
@@ -195,7 +197,10 @@ local function NewRow(index)
         self:StopMovingOrSizing()
         if row.spellID then
             local x,y=self:GetCenter(); local a,b=root:GetCenter()
-            if api.safe(x) and api.safe(y) and api.safe(a) and api.safe(b) then cfg.positions[row.spellID]={x=x-a,y=y-b} end
+            if api.safe(x) and api.safe(y) and api.safe(a) and api.safe(b) then
+                cfg.positions[row.spellID]={x=x-a,y=y-b}
+                self:ClearAllPoints(); self:SetPoint("CENTER",root,"CENTER",x-a,y-b)
+            end
         end
     end)
     pool[index]=row; return row
@@ -228,17 +233,34 @@ local function Layout(entries)
     EnsureRoot()
     root:SetScale(cfg.scale); PositionRoot()
     local n=#entries; local size=cfg.iconSize; local gap=cfg.spacing
+    local dialPositions,lanes={},{}
+    local extent=130
+    if cfg.layout=="dial" then
+        for i,e in ipairs(entries) do
+            local a=math.min(1,e.cost/maximum)*270
+            local lane=1
+            -- Keep close-cost icons in distinct radial lanes. Their markers
+            -- still remain at the exact same public resource threshold.
+            while lanes[lane] and a-lanes[lane]<math.max(24,size*.8) do lane=lane+1 end
+            lanes[lane]=a
+            local radius=92+(lane-1)*(size+gap)
+            local x,y=DialPoint(e.cost,maximum,radius)
+            dialPositions[i]={x=x,y=y}
+            extent=math.max(extent,math.abs(x)+size*.5+12,math.abs(y)+size*.5+22)
+        end
+    end
+    local clusterSize=math.max(174,size*3.8)
+    local clusterWidth=clusterSize+size+110
     local w,h=math.max(1,n)*(size+gap)-gap,size
     if cfg.layout=="bars" then w=cfg.barWidth+size+8; h=math.max(1,n)*(math.max(size,cfg.barHeight)+gap)-gap
-    elseif cfg.layout=="dial" then w,h=300,270
-    elseif cfg.layout=="rings" then w=math.max(1,math.min(n,4))*(size+28+gap)-gap; h=math.max(1,math.ceil(n/4))*(size+28+gap)-gap
+    elseif cfg.layout=="dial" then w,h=extent*2,extent*2
+    elseif cfg.layout=="rings" then w=clusterWidth; h=math.max(1,math.ceil(n/4))*(clusterSize+gap)-gap
     elseif cfg.layout=="freeform" then w,h=360,190
     elseif cfg.vertical then w,h=size,w end
     root:SetSize(math.max(w,1),math.max(h,1))
     if dial then dial.frame:Hide() end
     if cfg.layout=="dial" then SetupDial() end
     local r,g,b=Color()
-    local lanes={}
     for i,e in ipairs(entries) do
         local row=pool[i] or NewRow(i)
         rows[i]=row; row.spellID=e.spellID; row.cost=e.cost; row.finisher=e.finisher; row.category=e.category
@@ -249,6 +271,7 @@ local function Layout(entries)
         row.connector:Hide(); row.marker:Hide(); row.track:Hide(); row.bar:Hide(); row.ringTrack:Hide(); row.bright:Hide()
         api.clear(row.overlay); api.clearReady(row.overlay)
         row.icon.icon:SetTexture(e.icon); row.icon.icon:SetVertexColor(1,1,1,1)
+        row.bright:SetTexture(e.icon); row.bright:SetVertexColor(1,1,1,1)
         row.name:SetText(e.name); row.costLabel:SetText(tostring(e.cost))
         row.name:Hide(); row.costLabel:Hide()
         row.icon:SetSize(size,size)
@@ -261,30 +284,28 @@ local function Layout(entries)
             row.bar:SetStatusBarColor(r,g,b,cfg.opacity)
             row.name:SetPoint("LEFT",row.bar,"LEFT",5,0); row.costLabel:SetPoint("RIGHT",row.bar,"RIGHT",-5,0)
         elseif cfg.layout=="dial" then
-            local lane=0
-            -- Reserve radial lanes for close or identical thresholds; positions
-            -- depend only on public costs, never current energy.
-            local a=e.cost/maximum*270
-            for l=1,4 do
-                if not lanes[l] or a-lanes[l]>=24 then lane=l-1; lanes[l]=a; break end
-                if l==4 then lane=3; lanes[l]=a end
-            end
-            local radius=92+lane*(size*.65+5)
-            local x,y=DialPoint(e.cost,maximum,radius)
+            local x,y=dialPositions[i].x,dialPositions[i].y
             local ix,iy=DialPoint(e.cost,maximum,69)
             row.frame:SetSize(size,size); row.frame:SetPoint("CENTER",root,"CENTER",x,y)
             row.icon:SetPoint("CENTER",row.combo,"CENTER")
             row.costLabel:SetPoint("TOP",row.icon,"BOTTOM",0,-1)
             row.marker:ClearAllPoints(); row.marker:SetPoint("CENTER",root,"CENTER",ix,iy); row.marker:SetSize(4,4); row.marker:Show()
-            row.bright:SetVertexColor(r,g,b,.55); row.bright:Show()
+            row.icon.icon:SetVertexColor(.45,.45,.45,1)
+            row.bright:SetAlpha(0); row.bright:Show()
         elseif cfg.layout=="rings" then
-            local cell=size+28
-            row.frame:SetSize(cell,cell); row.frame:SetPoint("TOPLEFT",root,"TOPLEFT",((i-1)%4)*(cell+gap),-math.floor((i-1)/4)*(cell+gap))
-            row.icon:SetSize(size*.78,size*.78); row.icon:SetPoint("CENTER",row.combo,"CENTER")
-            row.ringTrack:SetAllPoints(row.combo); row.ringTrack:Show()
-            if row.ring then row.ring:SetAllPoints(row.combo); row.ring:SetStatusBarColor(r,g,b,cfg.opacity)
-            else row.bar:SetSize(cell-8,5); row.bar:SetPoint("BOTTOM",row.combo,"BOTTOM",0,0); row.bar:SetStatusBarColor(r,g,b,cfg.opacity); row.track:SetAllPoints(row.bar); row.track:Show() end
-            row.costLabel:SetPoint("TOP",row.icon,"BOTTOM",0,-2)
+            local slot=(i-1)%4
+            local cluster=math.floor((i-1)/4)
+            local diameter=clusterSize*(1-slot*.19)
+            local iconSize=math.min(size,clusterSize/4-5)
+            row.frame:SetSize(clusterWidth,clusterSize); row.frame:SetPoint("TOPLEFT",root,"TOPLEFT",0,-cluster*(clusterSize+gap))
+            row.icon:SetSize(iconSize,iconSize)
+            row.icon:SetPoint("TOPLEFT",row.combo,"TOPLEFT",clusterSize+8,-slot*clusterSize/4-2)
+            row.ringTrack:SetSize(diameter,diameter); row.ringTrack:SetPoint("LEFT",row.combo,"LEFT",(clusterSize-diameter)/2,0); row.ringTrack:Show()
+            -- Modulate the shared hue slightly so adjacent rings are distinguishable.
+            local shade=1-slot*.12
+            if row.ring then row.ring:SetAllPoints(row.ringTrack); row.ring:SetStatusBarColor(r*shade,g*shade,b*shade,cfg.opacity)
+            else row.bar:SetSize(70,5); row.bar:SetPoint("LEFT",row.icon,"RIGHT",5,-8); row.bar:SetStatusBarColor(r,g,b,cfg.opacity); row.track:SetAllPoints(row.bar); row.track:Show() end
+            row.name:SetPoint("LEFT",row.icon,"RIGHT",5,5); row.costLabel:SetPoint("LEFT",row.icon,"RIGHT",5,-8)
         else
             row.frame:SetSize(size,size)
             if cfg.layout=="freeform" then
@@ -295,7 +316,7 @@ local function Layout(entries)
             else row.frame:SetPoint("TOPLEFT",root,"TOPLEFT",cfg.vertical and 0 or (i-1)*(size+gap),cfg.vertical and -(i-1)*(size+gap) or 0) end
             row.icon:SetPoint("CENTER",row.combo,"CENTER"); row.costLabel:SetPoint("TOP",row.icon,"BOTTOM",0,-1)
         end
-        if cfg.showNames and cfg.layout=="bars" then row.name:Show() end
+        if cfg.showNames and (cfg.layout=="bars" or cfg.layout=="rings") then row.name:Show() end
         if cfg.showCosts then row.costLabel:Show() end
         api.style(row.overlay)
         row.frame:SetAlpha(1); row.combo:SetAlpha(1); row.cooldown:SetAlpha(1); row.frame:Show()
@@ -313,17 +334,18 @@ function T.Sync(records,maxEnergy)
     for _,e in ipairs(entries) do bits[#bits+1]=e.spellID..":"..e.cost..":"..tostring(e.finisher)..":"..tostring(e.category) end
     local key=table.concat(bits,"|")
     if signature==key then SetLocked(); if refresh and panel:IsShown() then refresh() end; return false end
-    signature=key; T.Hide(); rows={}; byCost={}; costs={}
+    signature=key; T.Hide(); rows={}; byCost={}; costs={}; layoutOK=false
     if cfg.enabled then
         local ok,err=pcall(Layout,entries)
-        if not ok then lastError=tostring(err); if root then root:Hide() end; rows={}; byCost={}; costs={} end
+        layoutOK=ok
+        if not ok then lastError=tostring(err); if root then root:Hide() end; rows={}; byCost={}; costs={} else lastError="none" end
     end
     if refresh and panel:IsShown() then refresh() end
     return true
 end
 function T.Costs() return costs end
 function T.Begin(demo)
-    if not cfg or not cfg.enabled or not root or not signature or (#rows==0 and cfg.layout~="dial") then T.Hide(); return false end
+    if not cfg or not cfg.enabled or not root or not layoutOK or (#rows==0 and cfg.layout~="dial") then T.Hide(); return false end
     active=true; root:Show(); return true
 end
 function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,comboEnabled,cooldowns,cooldownEnabled,demo)
@@ -331,7 +353,8 @@ function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,com
     for _,row in ipairs(byCost[cost]) do
         local ok,err=pcall(function()
             if not valid then ClearRow(row); return end
-            local c=comboEnabled and row.finisher and combo or 1
+            local c=1
+            if comboEnabled and row.finisher then c=combo end
             local cd=1
             if cooldownEnabled then
                 local cached=cooldowns[row.spellID]
@@ -348,10 +371,9 @@ function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,com
             if cfg.layout=="bars" then SetRange(row.bar,fill,group,direct)
             elseif cfg.layout=="rings" then SetRange(row.ring or row.bar,fill,group,direct)
             elseif cfg.layout=="dial" then
-                row.icon.icon:SetVertexColor(.55,.55,.55,1)
-                if ready~=nil or api.secret(ready) then
-                    pcall(row.bright.SetAlpha,row.bright,ready)
-                elseif demo then row.bright:SetAlpha(0) else row.bright:SetAlpha(0) end
+                if api.secret(ready) or api.safe(ready)~=nil then
+                    if not pcall(row.bright.SetAlpha,row.bright,ready) then row.bright:SetAlpha(0) end
+                else row.bright:SetAlpha(0) end
             else api.paint(row.overlay,fill,deficit,visibility,group,direct) end
             api.ready(row.overlay,ready,not demo and not cfg.hideReady and comboOK and cdOK and api.safe(c)~=0 and api.safe(cd)~=0)
         end)
@@ -453,7 +475,7 @@ function T.Open()
             t:SetVertexColor(unpack(colors[key])); colorButtons[key]=b
         end
         Button("Reset position",304,-270,160,function() cfg.x,cfg.y=0,-180; cfg.positions={}; signature=nil; api.apply() end)
-        Check("showNames","Bar names",16,-300); Check("showCosts","Energy costs",245,-300)
+        Check("showNames","Ability names",16,-300); Check("showCosts","Energy costs",245,-300)
         Check("hideReady","Hide affordable rows",16,-326); Check("readyEffects","Ready effects",245,-326)
         Check("auto","Track all current bar abilities",16,-352)
         Text("Uncheck above to choose abilities. Selected off-page spells may persist.",16,-380)
@@ -475,16 +497,17 @@ function T.Open()
             syncing=true
             for key,b in pairs(checks) do b:SetChecked(cfg[key]) end
             for key,b in pairs(buttons) do Highlight(b,key==cfg.layout) end
-            for key,b in pairs(styles) do Highlight(b,key==cfg.iconMode); b:SetEnabled(cfg.layout=="icons" or cfg.layout=="freeform") end
+            for key,b in pairs(styles) do Highlight(b,key==cfg.iconMode); if cfg.layout=="icons" or cfg.layout=="freeform" then b:Enable() else b:Disable() end end
             for key,b in pairs(colorButtons) do Highlight(b,key==cfg.color) end
             for key,row in pairs(sliders) do row.bar:SetValue(cfg[key]*row.factor); row.label:SetText(row.text..": "..math.floor(cfg[key]*row.factor+.5)) end
             local entries={}; for _,e in pairs(catalog) do if e.cost and e.cost>0 then entries[#entries+1]=e end end
             table.sort(entries,function(a,b) if a.name==b.name then return a.spellID<b.spellID end return a.name<b.name end)
             local pages=math.max(1,math.ceil(#entries/#choices)); page=math.max(1,math.min(page,pages)); pageLabel:SetText(page.." / "..pages)
-            prev:SetEnabled(page>1); nextPage:SetEnabled(page<pages)
+            if page>1 then prev:Enable() else prev:Disable() end
+            if page<pages then nextPage:Enable() else nextPage:Disable() end
             for i,row in ipairs(choices) do
                 local e=entries[(page-1)*#choices+i]; row.id=e and e.spellID or nil
-                if e then row.b:Show(); row.l:Show(); row.l:SetText(e.name.." ("..e.cost..")"); row.b:SetChecked(cfg.auto and e.current or cfg.selected[e.spellID]==true); row.b:SetEnabled(not cfg.auto)
+                if e then row.b:Show(); row.l:Show(); row.l:SetText(e.name.." ("..e.cost..")"); row.b:SetChecked(cfg.auto and e.current or cfg.selected[e.spellID]==true); if cfg.auto then row.b:Disable() else row.b:Enable() end
                 else row.b:Hide(); row.l:Hide() end
             end
             syncing=false
