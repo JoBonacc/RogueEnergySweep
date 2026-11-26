@@ -35,7 +35,7 @@ See [full options and limitations](addon/RogueEnergySweep/README.md), [changelog
 
 Run `lua tests/compatibility.lua` and `lua tests/api_contracts.lua` and `python scripts/package.py --version X.Y.Z --output dist` from the repository root. The compatibility test exercises the actual diagnostic functions, not live rendering. The historical v0.3.0 simulation harness was not retained; its report is archived with the addon.
 
-Update the TOC, Lua version, addon README and changelog together. Change the supported interface only after checking the client. The packager generates a matching Forever-specific TOC and release ZIP plus SHA-256 checksum. Push changes to main and then push a single new `vX.Y.Z` tag to trigger GitHub Actions. Historical tags preserve previous versions.
+Update the TOC, Lua version, addon README and changelog together. Change the supported interface only after checking the client. The packager generates a matching Forever-specific TOC and release ZIP plus SHA-256 checksum. Ordinary commits to main run validation only. To publish intentionally, use a commit with subject `Publish release: vX.Y.Z` matching the TOC version, or run the release workflow manually; pushing a single new version tag also works. GitHub Actions gates publication on passing tests. Historical tags preserve previous versions.
 
 ## License and attribution
 
