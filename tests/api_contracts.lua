@@ -257,3 +257,12 @@ assert(not excluded(r)); filterEnv.DB.excludedSpells[123]=true; assert(excluded(
 assert(src:find('not demo and IsExcluded(record)',1,true))
 assert(src:find('DB.hideCooldowns and not demo',1,true))
 print("PASS: cooldown GCD exclusion, native secret alpha, fail-open and ability exclusions")
+
+local entriesEnv=setmetatable({records={{cost=35,spellID=123},{cost=35,spellID=123},{cost=0,spellID=999},{cost=25,spellID=234}},DB={excludedSpells={[123]=true,[345]=true}},C_Spell={GetSpellInfo=function(id) return {name="Ability "..id,iconID=id+1000} end}}, {__index=_G})
+local entryCode=section("local function IsSecret","local MODES")..section("local function AbilityFilterEntries","local function OpenAbilityFilters")
+local list=assert(load(entryCode.."\nreturn AbilityFilterEntries","entry mocks","t",entriesEnv))()
+local entries=list()
+assert(#entries==3 and entries[1].id==123 and entries[1].tracked and entries[2].id==234 and entries[3].id==345 and not entries[3].tracked)
+assert(entries[1].icon==1123)
+assert(src:find('Button("Test on bars",324,-layout.previewIcons',1,true))
+print("PASS: deduplicated ability filter list, retained exclusions and compact preview actions")

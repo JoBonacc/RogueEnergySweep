@@ -974,6 +974,7 @@ local function OpenAbilityFilters()
         panel:SetScript("OnDragStart",function(self) self:StartMoving() end)
         panel:SetScript("OnDragStop",function(self) self:StopMovingOrSizing() end)
         if panel.TitleText then panel.TitleText:SetText("Ability filters") end
+        if UISpecialFrames then UISpecialFrames[#UISpecialFrames+1]=panel:GetName() end
         local function Label(text,x,y,template)
             local f=panel:CreateFontString(nil,"ARTWORK",template or "GameFontHighlight")
             f:SetPoint("TOPLEFT",panel,"TOPLEFT",x,y); f:SetText(text); return f
@@ -1173,8 +1174,8 @@ local function CreateOptions()
         record.previewCost=entry[1]; previewRecords[#previewRecords+1]=record
         Label(tostring(entry[1]).." energy",16+(i-1)*82,-layout.previewCosts,"GameFontHighlightSmall")
     end
-    Button("Test on bars",16,-layout.footer,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
-    Button("Reset defaults",324,-layout.footer,120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
+    Button("Test on bars",324,-layout.previewIcons,120,function() SlashCmdList.ROGUEENERGYSWEEP("demo") end)
+    Button("Reset defaults",324,-(layout.previewIcons+30),120,function() SlashCmdList.ROGUEENERGYSWEEP("reset") end)
     refreshPanel=function()
         refreshLiveStatus()
         syncing=true
