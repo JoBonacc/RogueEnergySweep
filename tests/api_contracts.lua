@@ -126,3 +126,15 @@ env.progressGeneration=2
 pf,pd,success,source,direct=countdown(sg,45,secret,secret)
 assert(success and direct and sg.generation==2 and rawequal(pd,secret))
 print("PASS: protected snapshot generation, clipped perimeter geometry, missing clipping fallback")
+
+-- Verify the diagnostic labels, not just the counts.
+local summaryEnv=setmetatable({records={}}, {__index=_G})
+local summary=assert(load(section("local function ProgressSummary()","local function Status()").."\nreturn ProgressSummary","summary mocks","t",summaryEnv))()
+assert(summary()=="no active indicators")
+for i=1,5 do summaryEnv.records[i]={cost=45,progressState="native countdown"} end
+local label,counts=summary()
+assert(label=="native countdown: 5" and counts["native countdown"]==5)
+summaryEnv.records[5].progressState="energy fallback"
+summaryEnv.records[6]={cost=0,progressState="energy"}
+assert(summary()=="native countdown: 4 | energy fallback: 1")
+print("PASS: actual progress diagnostic labels and mixed counts")

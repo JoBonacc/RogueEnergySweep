@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.7.0 (WoW Forever)
+-- Rogue Energy Sweep 0.7.1 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME = ...
@@ -711,7 +711,7 @@ local function ProgressSummary()
     end
     local parts={}
     for _,key in ipairs({"native countdown","public countdown","energy fallback","energy","demo","unavailable"}) do
-        if states[key] then parts[#parts+1]=states[key]..": "..states[key] end
+        if states[key] then parts[#parts+1]=string.format("%s: %d",key,states[key]) end
     end
     return #parts>0 and table.concat(parts," | ") or "no active indicators",states
 end
@@ -728,7 +728,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.7.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.7.1 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())

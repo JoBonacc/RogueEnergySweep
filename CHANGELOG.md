@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.7.1
+- Correct actual-progress labels in chat and options (e.g. `native countdown: 5` instead of `5: 5`).
+- Add a regression test for mixed progress states and empty indicators.
+- Record successful live animation smoke tests on build 71139 across v0.6.0–v0.7.0. Rendering is unchanged; full compatibility checklist remains pending.
+
 ## v0.7.0
 - Replace failed protected countdown normalization readback with direct native status-bar ranges for rising, bottom, radial and clipped perimeter styles.
 - Preserve energy-based renderers and reset linear ranges when switching back to energy progress.

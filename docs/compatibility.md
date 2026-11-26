@@ -13,7 +13,9 @@ Source: [build catalogue](https://foreverdiff.com/builds/1.60.1.71091/), [Blizza
 
 v0.6.1: user confirmed restored radial rendering works. All four energy-based styles reported working across v0.6.0/v0.6.1; complete checklist still pending.
 
-v0.7.0: candidate protected countdown fix uses direct native ranges. Test all four modes, especially whether the clipped perimeter is available in Forever and whether radial status bars draw a full sweep. The reviewed baseline remains 71091; 71139 is the observed client, not a fully reviewed/tested build.
+## Live animation smoke test — November 25, 2026
+
+Build 71139, interface 16001: user reported all four countdown styles working in v0.7.0. Together with the earlier v0.6.0/v0.6.1 energy-style checks, all eight animation combinations are reported working. The v0.7.0 bottom-bar status showed five tracked buttons, five bars active, a protected snapshot requesting direct ranges, and no historical API error. The progress summary incorrectly displayed `5: 5`; v0.7.1 fixes the label without changing rendering. The full edge-case checklist below has not been completed, and action-bar configuration was not recorded. No fully live-tested build is claimed. The reviewed baseline remains 71091.
 
 Run after every client patch or rendering change:
 
