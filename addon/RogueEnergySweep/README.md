@@ -83,3 +83,5 @@ In Ability Chains, select a source ability, then cycle each local follow-up butt
 
 ## Unified settings (v0.20.0)
 `/resweep` opens one task-oriented settings window. Action bars contains readiness style, preview, appearance, behavior, ready effects and ability filters. Energy HUD groups layouts by purpose with visual thumbnails and contextual settings. Ability planning contains repeat/follow-up rules, a direct Kick reservation toggle, global rules, templates and appearance. Advanced contains master/combat switches, regeneration, profiling, diagnostics and reset. Quick setup enables a feature without resetting other settings. `/resweep tracker`, `/resweep chains`, `/resweep filters` and `/resweep ready` navigate directly to the relevant page. Action-bar sweep and planning pips are independent; master enable and shared filters still apply. Existing preferences are preserved. `/resweep legacy` opens the old controls if necessary. Live layout verification pending.
+
+The planning page's consecutive-use switch hides repeat circles on action buttons without altering follow-up warnings or the standalone cast-count HUD.

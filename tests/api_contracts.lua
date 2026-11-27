@@ -771,3 +771,32 @@ end)()
     assert(painted>0)
     print("PASS: unified settings all pages, all HUD layouts, navigation, native preview wiring, saved settings and widget reuse")
 end)()
+
+;(function()
+    -- User can hide repeat pips without losing warning diamonds or Arsenal counts.
+    local localNS={}
+    local made={}
+    local env3=setmetatable({C_CurveUtil=env.C_CurveUtil,
+        C_Spell={GetSpellInfo=function(id) return {name=id==1 and "Sinister Strike" or "Kick"} end},
+        CreateFrame=function(kind,name,parent)
+            local w=trackerWidget(parent,kind,name)
+            function w:SetOrientation(v) self.orientation=v end
+            made[#made+1]=w; return w
+        end},{__index=_G})
+    assert(loadfile("addon/RogueEnergySweep/Chains.lua","t",env3))("RogueEnergySweep",localNS)
+    local C=localNS.Chains
+    C.Configure({safe=function(v) if type(v)=="number" then return v end end,secret=env.issecretvalue,excluded=function() return false end,evaluate=function() return secret,true end})
+    local d={chains={enabled=true,repeatEnabled=false,globalFollow={[2]="warning"}}}
+    C.Init(d)
+    local a={spellID=1,cost=45,category="builder",comboGate=trackerWidget(nil,"Frame"),frame=trackerWidget(nil,"Frame")}
+    local k={spellID=2,cost=25,category="other",comboGate=trackerWidget(nil,"Frame"),frame=trackerWidget(nil,"Frame")}
+    C.Sync({a,k},100); C.Begin(); C.Update(a,true)
+    local count=0
+    for _,w in ipairs(made) do if w.kind=="StatusBar" then count=count+1; assert(w.SetStatusBarTextureArgs[1]:find("ChainWarning",1,true)) end end
+    assert(count==1)
+    assert(#C.ArsenalSpec({spellID=1,cost=45,category="builder",name="Sinister Strike"},100,false).defs==3)
+    assert(C.SetGlobal(2,"off")); assert(C.SetLocal(1,2,"opportunity")); assert(C.OptionsRule(1).conditions[2]=="opportunity")
+    assert(C.SetLocal(1,2,"warning")); assert(C.OptionsRule(1).conditions[2]=="warning")
+    assert(C.SetLocal(1,2,"off")); assert(#C.OptionsRule(1).follow==0)
+    print("PASS: independent repeat-pip switch, Arsenal independence and new local/global settings API")
+end)()

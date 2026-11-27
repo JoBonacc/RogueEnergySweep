@@ -13,7 +13,7 @@ local palette={{.75,.53,1},{.76,.51,.29},{1,.29,.26},{1,.78,.22},{.30,.85,.48},{
 local function number(v,d,lo,hi) if type(v)~="number" or v~=v then v=d end; return math.max(lo,math.min(hi,v)) end
 local function Normalize(c)
     c=type(c)=="table" and c or {}
-    c.enabled=c.enabled==true; c.fraction=c.fraction~=false; c.hideInactive=c.hideInactive==true
+    c.enabled=c.enabled==true; c.repeatEnabled=c.repeatEnabled~=false; c.fraction=c.fraction~=false; c.hideInactive=c.hideInactive==true
     c.size=number(c.size,7,4,13); c.spacing=number(c.spacing,2,1,6); c.opacity=number(c.opacity,1,.2,1)
     c.offset=number(c.offset,0,-12,12); c.regen=number(c.regen,10,0,30)
     c.maxPips=math.floor(number(c.maxPips,4,1,6))
@@ -237,7 +237,7 @@ local function FollowDefinitions(entry,rule)
 end
 local function Setup(record,entry)
     local rule=Rule(entry)
-    local defs=rule.repeatPips and RepeatDefinitions(entry.id,entry.cost,maxEnergy,cfg.maxPips,cfg.regen,cfg.fraction) or {}
+    local defs=cfg.repeatEnabled and rule.repeatPips and RepeatDefinitions(entry.id,entry.cost,maxEnergy,cfg.maxPips,cfg.regen,cfg.fraction) or {}
     for _,d in ipairs(FollowDefinitions(entry,rule)) do defs[#defs+1]=d end
     if #defs==0 then if tracked[record] then tracked[record].count=0 end; Clear(record); return end
     local r=tracked[record]
@@ -295,7 +295,7 @@ end
 function C.Sync(records,max)
     if not cfg or not api then return end
     Remember(records); maxEnergy=max
-    local bits={tostring(cfg.enabled),cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),tostring(cfg.pulseWarnings),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max}
+    local bits={tostring(cfg.enabled),tostring(cfg.repeatEnabled),cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),tostring(cfg.pulseWarnings),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max}
     for _,e in ipairs(ordered) do
         local r=Rule(e); bits[#bits+1]=e.id..":"..e.cost..":"..tostring(r.repeatPips)..":"..select(2,GetColor(e.id))
         bits[#bits+1]="global:"..tostring(cfg.globalFollow[e.id])

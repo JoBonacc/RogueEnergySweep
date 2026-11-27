@@ -760,7 +760,7 @@ function T.Status()
 end
 function T.Command(arg)
     if arg=="on" then cfg.enabled=true
-    elseif arg=="off" then cfg.enabled=false; cfg.actionBars=true
+    elseif arg=="off" then cfg.enabled=false
     elseif arg=="lock" then cfg.locked=true
     elseif arg=="unlock" then cfg.locked=false
     elseif layouts[arg] then cfg.layout=arg; cfg.enabled=true

@@ -111,6 +111,7 @@ local function Slider(label,v,lo,hi,step,fn,unit,previewOnly)
         if previewOnly then fn(n); api.previewPaint(previewRecords,energy,start) else Commit(function() fn(n) end,false) end
     end)
     y=y+49
+    return b,l
 end
 local function Choices(items,current,fn,columns)
     columns=columns or math.min(3,#items)
@@ -129,6 +130,7 @@ local function Preview()
     end
     preview:ClearAllPoints(); At(preview,0,y); preview:Show()
     api.previewPaint(previewRecords,energy,start)
+    local previewSlider,previewLabel,animatingSlider=false,false,false
     Button("Animate",350,y+6,150,function()
         if playing then playing=false; window:SetScript("OnUpdate",nil); return end
         playing=true; energy=DB().progress=="countdown" and start or 0
@@ -138,12 +140,16 @@ local function Preview()
             if acc<.04 then return end
             energy=math.min(100,energy+10*acc); acc=0
             api.previewPaint(previewRecords,energy,start)
+            if previewSlider then
+                animatingSlider=true; previewSlider:SetValue(math.floor(energy+.5)); animatingSlider=false
+                if previewLabel then previewLabel:SetText("Preview energy: "..math.floor(energy+.5)) end
+            end
             if energy>=100 then playing=false; window:SetScript("OnUpdate",nil) end
         end)
     end)
     Button("Test on my bars",350,y+36,150,function() api.command("demo") end)
     y=y+73
-    Slider("Preview energy",math.floor(energy+.5),0,100,1,function(v) energy=v; playing=false; window:SetScript("OnUpdate",nil) end,nil,true)
+    previewSlider,previewLabel=Slider("Preview energy",math.floor(energy+.5),0,100,1,function(v) if not animatingSlider then energy=v; playing=false; window:SetScript("OnUpdate",nil) end end,nil,true)
     if DB().progress=="countdown" then Slider("Post-spend start",start,0,100,1,function(v) start=v end,nil,true) end
 end
 local function Colors(current,entries,palette,set,custom)
@@ -242,8 +248,9 @@ local function Mini(layout,x,top)
             for i=0,10 do local a=math.pi+i*math.pi/10; R(26+20*math.cos(a),24+20*math.sin(a),5,5,gold,i<8 and 1 or .23) end
         else
             R(0,17,62,5,gold,.23)
-            for i=1,4 do local h=layout=="staircase" and 7+i*4 or 10
-                R((i-1)*16,22-h,14,h,gold,i<4 and 1 or .25)
+            for i=1,4 do
+                if layout=="lights" then R((i-1)*17,13,8,12,gold,i<4 and 1 or .25)
+                else local h=layout=="staircase" and 7+i*4 or 10; R((i-1)*16,22-h,14,h,gold,i<4 and 1 or .25) end
             end
         end
     elseif layout=="dial" or layout=="rings" then
@@ -402,7 +409,7 @@ local function Planning()
         for _,e in ipairs(entries) do
             local id=e.id; local mode=c.globalFollow[id] or "off"
             Text(e.name.." ("..e.cost..")",0,y+5,W-116,WHITE)
-            Button(ModeLabel(mode),W-110,y,110,function() Commit(function() if not C.SetGlobal(id,Cycle(mode)) then api.say("At most three global follow-ups.") else c.enabled=true; SetEnabled() end end,true) end)
+            Button(ModeLabel(mode),W-110,y,110,function() Commit(function() local nextMode=Cycle(mode); if not C.SetGlobal(id,nextMode) then api.say("At most three global follow-ups.") elseif nextMode~="off" then c.enabled=true; SetEnabled() end end,true) end)
             y=y+30
         end
         return
@@ -418,6 +425,7 @@ local function Planning()
     Heading("Ability planning","Understand the consequences of spending your energy.")
     Check("Enable action-button planning pips",c.enabled,function(v) c.enabled=v; if v then SetEnabled() end end,"Works independently of the energy readiness animation.")
     Section("Consecutive casts","Colored circles represent repeat uses of the same ability.")
+    Check("Show consecutive-use pips",c.repeatEnabled,function(v) c.repeatEnabled=v; if v then c.enabled=true; SetEnabled() end end,"Applies to action buttons; cast-count HUD settings are unchanged.")
     for i=1,3 do Rect((i-1)*18,y,14,14,.75,.53,1,i==3 and .35 or 1) end; y=y+21
     Link("Configure repeat pips and follow-ups",function() Go("planning","rules") end)
     Section("Reserve energy for Kick","Warn when another affordable action would leave too little energy for your next interrupt.")
