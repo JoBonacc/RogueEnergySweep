@@ -375,7 +375,7 @@ rr.finisher=true; ready,source=signal(rr,secret); assert(ready==nil and source==
 rr.finisher=false; readyEnv.C_Spell.IsSpellUsable=function() return secret,secret end
 ready,source=signal(rr,secret); assert(ready==nil)
 assert(src:find('pcall(record.readyGate.SetAlpha,record.readyGate,alpha)',1,true))
-assert(src:find('SafeUpdateReady(record,readyAlpha,not suppressReady and not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0',1,true))
+assert(src:find('SafeUpdateReady(record,readyAlpha,not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0',1,true))
 assert(src:find('Clear(record); ClearReady(record); record.progressState="excluded"',1,true))
 assert(src:find('UI-HUD-ActionBar-Casting-Complete-Glow',1,true))
 assert(src:find('UI-HUD-ActionBar-GCD-Flipbook',1,true))
@@ -802,31 +802,24 @@ end)()
 end)()
 
 ;(function()
-    local n={}; local now=100; local active=true; local opaque=false
-    local e=setmetatable({C_CurveUtil=env.C_CurveUtil,GetTime=function() return now end,
-        C_Spell={GetSpellInfo=function(id) return {name=id==1 and "Backstab" or "Other"} end,
-        GetSpellCooldown=function(id) if id==61304 then return {isActive=active} end return {isOnGCD=id==1 and active} end,
-        GetSpellCooldownDuration=function() return {GetRemainingDuration=function() return secret end,EvaluateRemainingDuration=function() return secret end} end}}, {__index=_G})
+    local n={}; local protected=false; local active=true; local rate=10; local calls={}
+    local e=setmetatable({C_CurveUtil=env.C_CurveUtil,GetTime=function() return 100 end,GetPowerRegen=function() return rate,rate end,
+        C_Spell={DoesSpellExist=function(id) return id==29515 end,
+        GetSpellCooldown=function(id) if id==29515 then return {isActive=active,startTime=protected and secret or 100,duration=protected and secret or 1,modRate=1} end return {isOnGCD=id==1 and active} end,
+        GetSpellCooldownDuration=function(id) calls[#calls+1]=id; return {GetRemainingDuration=function() return protected and secret or (active and 1 or 0) end} end}}, {__index=_G})
     assert(loadfile("addon/RogueEnergySweep/GCD.lua","t",e))("RogueEnergySweep",n)
     local g=n.GCD; g.Configure({safe=function(v) if type(v)=="number" then return v end end,secret=env.issecretvalue,evaluate=function(c) return eval(c,.55),true end})
     local db={gcdAware=true}; g.Init(db); g.CooldownEvent({{spellID=1},{spellID=2}}); g.Begin(100,false)
-    local f,d,v,r,projected,alpha,hold=g.Project(1,60,.9,.1,1,0,true)
-    assert(not projected and alpha==0 and hold and v==1)
-    local _,_,_,_,_,other=g.Project(2,60,.9,.1,1,0,true); assert(other==1)
-    local record={gcdGate={SetAlpha=function(self,v) self.alpha=v end}}; g.Apply(record,alpha); assert(record.gcdGate.alpha==0)
-    active=false; g.CooldownEvent({{spellID=1}}); g.Begin(100,false)
-    _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,true); assert(alpha==1 and not hold)
-    e.C_Spell.GetSpellCooldown=function(id) if id~=61304 then return {isOnGCD=id==1} end return {} end
-    g.CooldownEvent({{spellID=1}}); g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false)
-    assert(rawequal(alpha,secret) and hold); g.Apply(record,alpha); assert(rawequal(record.gcdGate.alpha,secret))
-    e.C_Spell.GetSpellCooldownDuration=function() error("unavailable") end
-    g.Cast(1); g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false); assert(alpha==0 and hold)
-    now=101.1; g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false); assert(alpha==1 and not hold)
-    e.C_Spell.GetSpellCooldown=function() return {isActive=false,isOnGCD=false} end
-    now=102; g.Cast(1); g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false); assert(alpha==0 and hold)
-    now=103.1; g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false); assert(alpha==1 and not hold)
-    record.gcdGate.SetAlpha=function(self,v) if rawequal(v,secret) then error("rejected") end; self.alpha=v end
-    g.Apply(record,secret,true); assert(record.gcdGate.alpha==0)
-    db.gcdAware=false; g.Begin(100,false); _,_,_,_,_,alpha=g.Project(1,60,.9,.1,1,0,false); assert(alpha==1)
-    print("PASS: protected GCD hold, native alpha forwarding, public cast expiry, off-GCD exclusion and disable")
+    local f,d,v,r,p=g.Project(1,60,.9,.1,1,0,false)
+    assert(p and v==0 and r==1 and calls[1]==29515)
+    f,d,v,r,p=g.Project(2,60,.9,.1,1,0,false); assert(not p and v==1)
+    protected=true; g.Begin(100,false)
+    f,d,v,r,p=g.Project(1,60,.9,.1,1,0,false)
+    assert(not p and v==1 and f==.9 and g.Status():find("protected",1,true))
+    protected=false; rate=secret; g.Begin(100,false)
+    f,d,v,r,p=g.Project(1,60,.9,.1,1,0,false); assert(not p and v==1)
+    rate=10; active=false; g.CooldownEvent({{spellID=1}}); g.Begin(100,false)
+    f,d,v,r,p=g.Project(1,60,.9,.1,1,0,false); assert(not p and v==1)
+    db.gcdAware=false; g.Begin(100,false); f,d,v,r,p=g.Project(1,60,.9,.1,1,0,false); assert(not p and v==1)
+    print("PASS: Forever GCD source, accurate public prediction, protected inputs preserve deficits, off-GCD and disable")
 end)()

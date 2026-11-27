@@ -2,7 +2,7 @@
 ## Title: Rogue Energy Sweep
 ## Notes: Energy readiness indicators on Rogue action buttons. Experimental Forever build.
 ## Author: Rogue Energy Sweep; based on Rogue Energy Need by Vryllak (MIT)
-## Version: 0.20.1
+## Version: 0.20.2
 ## SavedVariables: RogueEnergySweepDB
 ## OptionalDeps: Bartender4, Dominos, ElvUI
 

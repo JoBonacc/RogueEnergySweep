@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.20.2
+- Remove GCD-wide visual suppression and estimated cast-event holds. Accurate prediction only when public GCD duration and regeneration are readable. Prefer Forever's TEST Scorch (29515) over the Retail GCD dummy. Diagnostics record timing availability and actual projections; real deficits are never hidden by a fallback. In-combat projection remains unverified.
+
 ## v0.20.1
 - Fix GCD-aware readiness flicker when exact timing or regeneration is protected. Use a separate native GCD visibility gate or a confirmed active GCD hold instead of showing transient deficits during the lockout. Public prediction remains preferred; when neither timing nor active state is available, a bounded hold from a public cast/cooldown event is used for known GCD-bound abilities. Unknown/off-GCD abilities keep actual-energy behavior. Preserve planning pips and shared HUD energy.
 - Suppress false ready transitions during confirmed fallback holds and refresh after GCD expiry. Diagnostics include projection and fallback counts and last fallback path.

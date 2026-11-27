@@ -87,3 +87,5 @@ In Ability Chains, select a source ability, then cycle each local follow-up butt
 The planning page's consecutive-use switch hides repeat circles on action buttons without altering follow-up warnings or the standalone cast-count HUD.
 
 GCD-aware readiness (v0.20.1): when exact projection is unavailable, known GCD-bound abilities suppress sweep/ready visuals during a confirmed GCD rather than flashing a transient deficit. Native opaque duration or a public active flag is preferred; a bounded event-based hold is a last resort. Shared energy gauges and planning pips remain actual-energy based. Unknown abilities remain conservative. Diagnostics include cumulative projection/hold counts.
+
+GCD-aware readiness (v0.20.2): supersedes the v0.20.1 visual-hold behavior. Only measured public timing and regen are used; otherwise actual energy stays visible. Prefer Forever's 29515 GCD source; see diagnostics for availability. No estimated GCD or blanket suppression.

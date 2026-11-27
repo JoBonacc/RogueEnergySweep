@@ -63,3 +63,6 @@ Only after all relevant checks pass, record build, addon version, date, client c
 
 ## v0.20.1
 - [ ] With GCD-aware enabled, use Sinister Strike from 100 energy with Backstab (60 cost) tracked. Confirm no deficit flash, with ready effects off and on. Test low-energy casts, GCD expiry, off-GCD abilities, combat and protected/native fallback; check cumulative diagnostics. Confirm planning pips unaffected.
+
+## v0.20.2
+- [ ] Verify 29515 source availability outside and inside combat, projection counts and last unavailable reason, real deficits remain visible, no GCD-wide visual hold. Test 100-energy Sinister Strike -> Backstab only if public projection is available.
