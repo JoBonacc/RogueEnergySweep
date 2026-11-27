@@ -76,6 +76,7 @@ local function Button(label,x,top,width,fn,selected,disabled)
     local b=Take("button",function() return CreateFrame("Button",nil,content,"UIPanelButtonTemplate") end)
     b:SetSize(width,25); At(b,x,top); b:SetText(label); b:SetScript("OnClick",fn)
     b:SetScript("OnEnter",nil); b:SetScript("OnLeave",nil)
+    if b.resSwatch then b.resSwatch:Hide() end
     if b.LockHighlight and b.UnlockHighlight then if selected then b:LockHighlight() else b:UnlockHighlight() end end
     if disabled then b:Disable() else b:Enable() end
     return b
@@ -157,9 +158,9 @@ local function Colors(current,entries,palette,set,custom)
     for i,e in ipairs(entries) do
         local key,label=e[1],e[2]
         local b=Button(current==key and "*" or "",(i-1)*(width+5),y,width,function() Commit(function() set(key) end,true) end,current==key)
-        local tex=Take("swatch",function() return content:CreateTexture(nil,"OVERLAY") end)
-        tex:SetSize(width-14,12); tex:SetPoint("CENTER",b,"CENTER"); local c=palette[key]
-        tex:SetColorTexture(c[1],c[2],c[3],1)
+        if not b.resSwatch then b.resSwatch=b:CreateTexture(nil,"OVERLAY") end
+        local tex=b.resSwatch; tex:ClearAllPoints(); tex:SetSize(width-14,12); tex:SetPoint("CENTER",b,"CENTER"); local c=palette[key]
+        tex:SetColorTexture(c[1],c[2],c[3],1); tex:Show()
         if b.SetScript then
             b:SetScript("OnEnter",function(self) if GameTooltip then GameTooltip:SetOwner(self,"ANCHOR_TOP"); GameTooltip:SetText(label); GameTooltip:Show() end end)
             b:SetScript("OnLeave",function() if GameTooltip then GameTooltip:Hide() end end)
