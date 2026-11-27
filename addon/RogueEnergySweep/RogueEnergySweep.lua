@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.20.0 (WoW Forever)
+-- Rogue Energy Sweep 0.20.1 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...
@@ -534,7 +534,9 @@ local function MakeOverlay(button, preview)
     cooldownGate:SetAllPoints(button); cooldownGate:EnableMouse(false)
     local gate = CreateFrame("Frame",nil,cooldownGate)
     gate:SetAllPoints(button); gate:EnableMouse(false)
-    local frame = CreateFrame("Frame", nil, gate)
+    local gcdGate=CreateFrame("Frame",nil,gate)
+    gcdGate:SetAllPoints(button); gcdGate:EnableMouse(false)
+    local frame = CreateFrame("Frame", nil, gcdGate)
     local icon = button.icon or button.Icon
     if not icon or IsSecret(icon) or not pcall(frame.SetAllPoints, frame, icon) then
         frame:ClearAllPoints(); frame:SetAllPoints(button)
@@ -595,7 +597,7 @@ local function MakeOverlay(button, preview)
     edges[2]:SetPoint("TOPRIGHT",frame,"TOPRIGHT",0,0); edges[2]:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",0,0)
     edges[3]:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",0,0); edges[3]:SetPoint("BOTTOMRIGHT",frame,"BOTTOMRIGHT",0,0)
     edges[4]:SetPoint("TOPLEFT",frame,"TOPLEFT",0,0); edges[4]:SetPoint("BOTTOMLEFT",frame,"BOTTOMLEFT",0,0)
-    local record = {button=button,frame=frame,comboGate=gate,cooldownGate=cooldownGate,radial=radial,bar=bar,native=native,track=track,rising=rising,riseTint=tint,riseGradient=riseGradient,line=line,edges=edges}
+    local record = {button=button,frame=frame,comboGate=gate,cooldownGate=cooldownGate,gcdGate=gcdGate,radial=radial,bar=bar,native=native,track=track,rising=rising,riseTint=tint,riseGradient=riseGradient,line=line,edges=edges}
     if not preview then overlays[button]=record end
     Style(record); Clear(record)
     return record
@@ -676,7 +678,7 @@ local function ReadyBorder(parent,textures)
 end
 local function BuildReadyVisual(record,effect)
     if not record.readyGate then
-        local gate=CreateFrame("Frame",nil,record.comboGate)
+        local gate=CreateFrame("Frame",nil,record.gcdGate or record.comboGate)
         gate:EnableMouse(false); gate:SetAllPoints(record.frame)
         gate:SetFrameLevel(record.frame:GetFrameLevel()+4); gate:SetAlpha(0)
         record.readyGate=gate
@@ -1204,10 +1206,12 @@ local function UpdateCore()
                     Clear(record); ClearReady(record); record.progressState="action sweep off"
                 else
                 local actualFill,actualDeficit,actualVisibility,actualReady=fill,deficit,visibility,readyAlpha
+                local gcdAlpha,suppressReady=1,false
                 if GCD then
-                    fill,deficit,visibility,readyAlpha,record.gcdProjected=GCD.Project(record.spellID,cost,fill,deficit,visibility,readyAlpha,DB.progress=="countdown")
+                    fill,deficit,visibility,readyAlpha,record.gcdProjected,gcdAlpha,suppressReady=GCD.Project(record.spellID,cost,fill,deficit,visibility,readyAlpha,DB.progress=="countdown")
+                    GCD.Apply(record,gcdAlpha)
                 end
-                SafeUpdateReady(record,readyAlpha,not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0,false)
+                SafeUpdateReady(record,readyAlpha,not suppressReady and not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0,false)
                 if directRange then
                     -- Retry on a new snapshot, style change, or reload, not every power event.
                     local failed=record.failedGroup==group and record.failedGeneration==group.generation and record.failedMode==DB.mode
@@ -1364,7 +1368,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.20.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.20.1 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -1416,7 +1420,7 @@ local function DiagnosticReport()
         for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
     end
     local lines={
-        "Rogue Energy Sweep v0.20.0 diagnostic report",
+        "Rogue Energy Sweep v0.20.1 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
@@ -2084,6 +2088,7 @@ if Tracker then
         cost=GetEnergyCost,category=SpellCategory,
         say=Say,
         project=function(...) if GCD then return GCD.Project(...) end end,
+        gcdGate=function(record,alpha) if GCD then GCD.Apply(record,alpha) end end,
     })
 end
 if Chains then Chains.Configure({safe=SafeNumber,secret=IsSecret,excluded=IsExcluded,evaluate=Evaluate,apply=ApplySettings}) end
@@ -2146,6 +2151,11 @@ events:SetScript("OnEvent", function(_, event, ...)
         if DB.enabled and not IsSecret(unit) and unit == "player" and not IsSecret(power) and (power == "ENERGY" or (DB.finisherComboOnly and power=="COMBO_POINTS")) then RequestUpdate() end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellID = ...
+        if DB.enabled and DB.gcdAware and GCD and not IsSecret(unit) and unit=="player" then
+            GCD.Cast(SafeNumber(spellID)); RequestUpdate()
+            -- Expiry refresh even if no energy event occurs (e.g. at cap).
+            C_Timer.After(1.05,function() if DB and DB.enabled and DB.gcdAware then RequestUpdate() end end)
+        end
         if DB.enabled and DB.finisherComboOnly and not IsSecret(unit) and unit=="player" then RequestUpdate() end
         if DB.enabled and DB.progress=="countdown" and not IsSecret(unit) and unit=="player" then
             local id=SafeNumber(spellID)

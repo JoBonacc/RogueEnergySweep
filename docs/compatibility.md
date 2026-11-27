@@ -60,3 +60,6 @@ Only after all relevant checks pass, record build, addon version, date, client c
 
 ## v0.20.0 settings checklist
 - [ ] Open through slash and addon Settings, navigate every page, scroll at different UI scales, test previews, configure all HUD families and shared colors, edit global/local rules, use quick setup and reset. Check saved preference persistence and independent action sweep/planning switches. Verify no UI or taint errors in combat; legacy fallback remains available.
+
+## v0.20.1
+- [ ] With GCD-aware enabled, use Sinister Strike from 100 energy with Backstab (60 cost) tracked. Confirm no deficit flash, with ready effects off and on. Test low-energy casts, GCD expiry, off-GCD abilities, combat and protected/native fallback; check cumulative diagnostics. Confirm planning pips unaffected.

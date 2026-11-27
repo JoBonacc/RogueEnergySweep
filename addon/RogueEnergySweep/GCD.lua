@@ -2,24 +2,26 @@
 local _,ns=...
 local G={}; ns.GCD=G
 local api,db,maxEnergy,credit= nil,nil,100,0
-local onGCD,cache={},{}
+local onGCD,cache,known={}, {}, {}
 local status="off"
+local gateCurve,gate,active,enabled=nil,1,nil,false
+local fallbackCount,projectCount,lastFallback=0,0,"none"
+local observedUntil=0
+local function Now() return type(GetTime)=="function" and api.safe(GetTime()) or nil end
 function G.Configure(a) api=a end
-function G.Init(d) db=d; d.gcdAware=d.gcdAware==true; onGCD={}; cache={} end
+function G.Init(d) db=d; d.gcdAware=d.gcdAware==true; onGCD={}; cache={}; known={}; observedUntil=0; fallbackCount=0; projectCount=0; lastFallback="none" end
 function G.CooldownEvent(records)
     if not db or not db.gcdAware or not C_Spell or not C_Spell.GetSpellCooldown then return end
-    local seen={}
+    local seen={}; local newlyActive=false
     for _,r in ipairs(records) do
         local id=r.spellID
         if id and not seen[id] then
-            seen[id]=true; onGCD[id]=nil
-            local ok,info=pcall(C_Spell.GetSpellCooldown,id)
-            if ok and not api.secret(info) and type(info)=="table" then
-                local v=info.isOnGCD
-                if not api.secret(v) and type(v)=="boolean" then onGCD[id]=v end
-            end
+            seen[id]=true; local prior=onGCD[id]; onGCD[id]=nil
+            local ok,v=pcall(function() local info=C_Spell.GetSpellCooldown(id); return info and info.isOnGCD end)
+            if ok and not api.secret(v) and type(v)=="boolean" then onGCD[id]=v; if v and prior~=true then newlyActive=true end end
         end
     end
+    if newlyActive then local now=Now(); if now then observedUntil=math.max(observedUntil,now+1) end end
 end
 local function Regen()
     local function Read(fn,...)
@@ -37,47 +39,104 @@ local function Credit(rate,remaining)
     return math.floor(rate*remaining*4)/4
 end
 local function CanProject(id)
-    if onGCD[id]~=nil then return onGCD[id] end
+    if onGCD[id]==true then return true end
+    if known[id]~=nil then return known[id] end
     -- If the legacy public base-cooldown API is present, its second return
     -- identifies the spell's start recovery; otherwise stay conservative.
     if type(GetSpellBaseCooldown)=="function" then
         local ok,_,gcd=pcall(GetSpellBaseCooldown,id)
         gcd=ok and api.safe(gcd) or nil
-        if gcd then return gcd>0 end
+        if gcd then known[id]=gcd>0; return known[id] end
+    end
+    -- Public spell names for the core Forever rogue GCD-bound attacks. This
+    -- avoids a stale false isOnGCD snapshot before the cooldown event arrives.
+    -- Unknown abilities are not assumed to be on the GCD.
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok,name=pcall(function() local info=C_Spell.GetSpellInfo(id); return info and info.name end)
+        if ok and not api.secret(name) and type(name)=="string" then
+            local core={["Sinister Strike"]=true,Backstab=true,Gouge=true,Kick=true,Eviscerate=true,["Slice and Dice"]=true,Ambush=true,["Cheap Shot"]=true,Garrote=true,Rupture=true,["Kidney Shot"]=true,Shank=true,["Death Mark"]=true}
+            known[id]=core[name]==true; return known[id]
+        end
     end
     return false
 end
+-- Public success event for a known GCD-bound spell. Used only if the client
+-- provides neither an active flag nor a usable native duration. This is a
+-- bounded visual hold, not a reconstruction of protected energy/timing.
+function G.Cast(id)
+    if not db or not db.gcdAware or not id or not CanProject(id) then return end
+    local now=Now(); if now then observedUntil=now+1 end
+end
+local function NativeGate(d)
+    local ok,a=pcall(function()
+        if not gateCurve then
+            local c=C_CurveUtil.CreateCurve(); c:AddPoint(0,1); c:AddPoint(.001,0); c:AddPoint(86400,0); gateCurve=c
+        end
+        return d:EvaluateRemainingDuration(gateCurve)
+    end)
+    if ok and (api.secret(a) or api.safe(a)~=nil) then return a end
+end
 function G.Begin(max,demo)
     if maxEnergy~=max then cache={} end
-    maxEnergy=max; credit=0
-    if not db or not db.gcdAware or demo then status="off"; return end
-    status="actual energy (GCD or regen unavailable)"
-    if not C_Spell or not C_Spell.GetSpellCooldownDuration then return end
-    local ok,d=pcall(C_Spell.GetSpellCooldownDuration,61304,false)
-    local remaining
-    if ok and not api.secret(d) and d~=nil then
-        local good,v=pcall(function() return d:GetRemainingDuration() end)
-        remaining=good and api.safe(v) or nil
-    end
-    -- A duration object can be restricted while its public recovery field is
-    -- still accessible. Only use documented, independently public timing.
-    if remaining==nil and C_Spell.GetSpellCooldown then
-        local good,info=pcall(C_Spell.GetSpellCooldown,61304)
-        if good and not api.secret(info) and type(info)=="table" then
-            remaining=api.safe(info.timeUntilEndOfStartRecovery)
-            if remaining==nil and type(GetTime)=="function" then
-                local start,duration,modRate=api.safe(info.startTime),api.safe(info.duration),api.safe(info.modRate)
-                local now=api.safe(GetTime())
-                if start and duration and now and (modRate==1 or (modRate==nil and not api.secret(info.modRate))) then remaining=math.max(0,start+duration-now) end
+    maxEnergy=max; credit=0; gate=1; active=nil
+    enabled=db and db.gcdAware and not demo
+    if not enabled then status="off"; return end
+    status="actual energy (GCD unavailable)"
+    local remaining,duration,info
+    if C_Spell and C_Spell.GetSpellCooldownDuration then
+        local ok,d=pcall(C_Spell.GetSpellCooldownDuration,61304,false)
+        if ok then
+            if api.secret(d) or d~=nil then
+                duration=d
+                local good,v=pcall(function() return d:GetRemainingDuration() end)
+                remaining=good and api.safe(v) or nil
             end
         end
     end
-    if remaining==nil then return end
-    if remaining<=0 then status="actual energy (no GCD)"; return end
-    local rate=Regen()
-    if not rate then return end
-    credit=Credit(rate,remaining)
-    status=string.format("public GCD: %.2fs / %.1f energy per sec / +%.2f projected",remaining,rate,credit)
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local ok,infoActive,recovery,started,length,rate=pcall(function()
+            local v=C_Spell.GetSpellCooldown(61304)
+            if not v then return end
+            return v.isActive,v.timeUntilEndOfStartRecovery,v.startTime,v.duration,v.modRate
+        end)
+        if ok then
+            if not api.secret(infoActive) and type(infoActive)=="boolean" then active=infoActive end
+            if remaining==nil or (remaining<=0 and active==true) then
+                remaining=api.safe(recovery)
+                if remaining==nil then
+                    local now=Now()
+                    local st,du,mod=api.safe(started),api.safe(length),api.safe(rate)
+                    if now and st and du and (mod==1 or (mod==nil and not api.secret(rate))) then remaining=math.max(0,st+du-now) end
+                end
+            end
+        end
+    end
+    if active==false then status="actual energy (no GCD)"; return end
+    if remaining and remaining>0 then
+        active=true; gate=0
+        local rate=Regen()
+        if rate then
+            credit=Credit(rate,remaining)
+            status=string.format("public GCD: %.2fs / %.1f energy per sec / +%.2f projected",remaining,rate,credit)
+        else status="GCD hold (regen unavailable)" end
+        return
+    end
+    -- Prefer a confirmed public active flag, then the native opaque duration.
+    -- A zero duration alongside active=true is inconsistent; hold conservatively.
+    if active==true then gate=0; status="GCD hold (timing protected)"; return end
+    if remaining~=nil then active=false; status="actual energy (no GCD)"; return end
+    if api.secret(duration) or duration~=nil then
+        local alpha=NativeGate(duration)
+        if api.secret(alpha) or api.safe(alpha)~=nil then
+            gate=alpha; status="native GCD visibility gate"
+            return
+        end
+    end
+    local now=Now()
+    if now and now<observedUntil then active=true; gate=0; status="GCD hold (public cast event)"; return end
+    -- An event-confirmed on-GCD spell may be held even without timing data;
+    -- a subsequent cooldown event clears it. Do not guess for unknown spells.
+    status="GCD event fallback"
 end
 local function ProjectedCurve(cost,kind,bonus,max)
     local curve=C_CurveUtil.CreateCurve()
@@ -107,15 +166,31 @@ local function Evaluate(cost,kind)
     return api.evaluate(cache[key])
 end
 function G.Project(id,cost,fill,deficit,visibility,ready,countdown)
-    if credit<=0 or cost>maxEnergy or not CanProject(id) then return fill,deficit,visibility,ready,false end
+    if not enabled or cost>maxEnergy or not CanProject(id) then return fill,deficit,visibility,ready,false,1,false end
+    local function Fallback()
+        local alpha=gate
+        if status=="GCD event fallback" and onGCD[id]==true and not Now() then alpha=0 end
+        local public=api.safe(alpha)
+        if api.secret(alpha) or (public and public<1) then
+            fallbackCount=fallbackCount+1; lastFallback=status
+            return fill,deficit,visibility,ready,false,alpha,active==true or onGCD[id]==true
+        end
+        return fill,deficit,visibility,ready,false,1,false
+    end
+    if credit<=0 then return Fallback() end
     local v,ok=Evaluate(cost,"visibility")
     local r,ok2=Evaluate(cost,"ready")
-    if not ok or not ok2 then return fill,deficit,visibility,ready,false end
+    if not ok or not ok2 then return Fallback() end
     -- Countdown snapshots stay based on actual energy, only visibility/readiness
     -- are projected. Energy-based fill can use the projected value directly.
-    if countdown then return fill,deficit,v,r,true end
+    if countdown then projectCount=projectCount+1; return fill,deficit,v,r,true,1,false end
     local f,a=Evaluate(cost,"fill"); local d,b=Evaluate(cost,"deficit")
-    if a and b then return f,d,v,r,true end
-    return fill,deficit,visibility,ready,false
+    if a and b then projectCount=projectCount+1; return f,d,v,r,true,1,false end
+    return Fallback()
 end
-function G.Status() return status end
+function G.Apply(record,alpha)
+    if not record.gcdGate then return end
+    local ok=pcall(record.gcdGate.SetAlpha,record.gcdGate,alpha)
+    if not ok then pcall(record.gcdGate.SetAlpha,record.gcdGate,1) end
+end
+function G.Status() return status.." | projections "..projectCount.." | holds "..fallbackCount.." | last hold "..lastFallback end

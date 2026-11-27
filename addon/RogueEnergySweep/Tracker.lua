@@ -689,9 +689,11 @@ function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,com
         local ok,err=pcall(function()
             if not valid then ClearRow(row); return end
             local fill,deficit,visibility,ready=fill,deficit,visibility,ready
+            local gcdAlpha,suppressReady=1,false
             if api.project and cfg.layout~="dial" and not demo then
-                fill,deficit,visibility,ready,row.overlay.gcdProjected=api.project(row.spellID,cost,fill,deficit,visibility,ready,db.progress=="countdown")
+                fill,deficit,visibility,ready,row.overlay.gcdProjected,gcdAlpha,suppressReady=api.project(row.spellID,cost,fill,deficit,visibility,ready,db.progress=="countdown")
             end
+            if api.gcdGate then api.gcdGate(row.overlay,gcdAlpha) end
             local c=1
             if comboEnabled and row.finisher then c=combo end
             local cd=1
@@ -716,7 +718,7 @@ function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,com
                     if not pcall(row.bright.SetAlpha,row.bright,ready) then row.bright:SetAlpha(0) end
                 else row.bright:SetAlpha(0) end
             else api.paint(row.overlay,fill,deficit,visibility,group,direct) end
-            api.ready(row.overlay,ready,not demo and not cfg.hideReady and comboOK and cdOK and api.safe(c)~=0 and api.safe(cd)~=0)
+            api.ready(row.overlay,ready,not suppressReady and not demo and not cfg.hideReady and comboOK and cdOK and api.safe(c)~=0 and api.safe(cd)~=0)
         end)
         if not ok then lastError=tostring(err); ClearRow(row) end
     end

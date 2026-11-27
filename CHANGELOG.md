@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.20.1
+- Fix GCD-aware readiness flicker when exact timing or regeneration is protected. Use a separate native GCD visibility gate or a confirmed active GCD hold instead of showing transient deficits during the lockout. Public prediction remains preferred; when neither timing nor active state is available, a bounded hold from a public cast/cooldown event is used for known GCD-bound abilities. Unknown/off-GCD abilities keep actual-energy behavior. Preserve planning pips and shared HUD energy.
+- Suppress false ready transitions during confirmed fallback holds and refresh after GCD expiry. Diagnostics include projection and fallback counts and last fallback path.
+
 ## v0.20.0
 - Replace the normal settings experience with one scrollable, navigable window: Action bars, Energy HUD, Ability planning, Advanced and Quick setup. Contextual appearance and behavior pages, grouped visual HUD picker, direct Kick reservation, explicit local/global follow-up conditions, and native action preview.
 - Preserve all saved preferences and existing slash commands; legacy options remain available as `/resweep legacy`. Action-bar readiness, planning pips and repeat pips can be enabled independently; the advanced master switch still controls all features.

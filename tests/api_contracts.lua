@@ -800,3 +800,28 @@ end)()
     assert(C.SetLocal(1,2,"off")); assert(#C.OptionsRule(1).follow==0)
     print("PASS: independent repeat-pip switch, Arsenal independence and new local/global settings API")
 end)()
+
+;(function()
+    local n={}; local now=100; local active=true; local opaque=false
+    local e=setmetatable({C_CurveUtil=env.C_CurveUtil,GetTime=function() return now end,
+        C_Spell={GetSpellInfo=function(id) return {name=id==1 and "Backstab" or "Other"} end,
+        GetSpellCooldown=function(id) if id==61304 then return {isActive=active} end return {isOnGCD=id==1 and active} end,
+        GetSpellCooldownDuration=function() return {GetRemainingDuration=function() return secret end,EvaluateRemainingDuration=function() return secret end} end}}, {__index=_G})
+    assert(loadfile("addon/RogueEnergySweep/GCD.lua","t",e))("RogueEnergySweep",n)
+    local g=n.GCD; g.Configure({safe=function(v) if type(v)=="number" then return v end end,secret=env.issecretvalue,evaluate=function(c) return eval(c,.55),true end})
+    local db={gcdAware=true}; g.Init(db); g.CooldownEvent({{spellID=1},{spellID=2}}); g.Begin(100,false)
+    local f,d,v,r,projected,alpha,hold=g.Project(1,60,.9,.1,1,0,true)
+    assert(not projected and alpha==0 and hold and v==1)
+    local _,_,_,_,_,other=g.Project(2,60,.9,.1,1,0,true); assert(other==1)
+    local record={gcdGate={SetAlpha=function(self,v) self.alpha=v end}}; g.Apply(record,alpha); assert(record.gcdGate.alpha==0)
+    active=false; g.CooldownEvent({{spellID=1}}); g.Begin(100,false)
+    _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,true); assert(alpha==1 and not hold)
+    e.C_Spell.GetSpellCooldown=function(id) if id~=61304 then return {isOnGCD=id==1} end return {} end
+    g.CooldownEvent({{spellID=1}}); g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false)
+    assert(rawequal(alpha,secret) and hold); g.Apply(record,alpha); assert(rawequal(record.gcdGate.alpha,secret))
+    e.C_Spell.GetSpellCooldownDuration=function() error("unavailable") end
+    g.Cast(1); g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false); assert(alpha==0 and hold)
+    now=101.1; g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false); assert(alpha==1 and not hold)
+    db.gcdAware=false; g.Begin(100,false); _,_,_,_,_,alpha=g.Project(1,60,.9,.1,1,0,false); assert(alpha==1)
+    print("PASS: protected GCD hold, native alpha forwarding, public cast expiry, off-GCD exclusion and disable")
+end)()
