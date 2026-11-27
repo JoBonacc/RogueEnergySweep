@@ -693,7 +693,7 @@ function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,com
             if api.project and cfg.layout~="dial" and not demo then
                 fill,deficit,visibility,ready,row.overlay.gcdProjected,gcdAlpha,suppressReady=api.project(row.spellID,cost,fill,deficit,visibility,ready,db.progress=="countdown")
             end
-            if api.gcdGate then api.gcdGate(row.overlay,gcdAlpha) end
+            if api.gcdGate then api.gcdGate(row.overlay,gcdAlpha,suppressReady) end
             local c=1
             if comboEnabled and row.finisher then c=combo end
             local cd=1

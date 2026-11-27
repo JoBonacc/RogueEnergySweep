@@ -1209,7 +1209,7 @@ local function UpdateCore()
                 local gcdAlpha,suppressReady=1,false
                 if GCD then
                     fill,deficit,visibility,readyAlpha,record.gcdProjected,gcdAlpha,suppressReady=GCD.Project(record.spellID,cost,fill,deficit,visibility,readyAlpha,DB.progress=="countdown")
-                    GCD.Apply(record,gcdAlpha)
+                    GCD.Apply(record,gcdAlpha,suppressReady)
                 end
                 SafeUpdateReady(record,readyAlpha,not suppressReady and not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0,false)
                 if directRange then
@@ -2088,7 +2088,7 @@ if Tracker then
         cost=GetEnergyCost,category=SpellCategory,
         say=Say,
         project=function(...) if GCD then return GCD.Project(...) end end,
-        gcdGate=function(record,alpha) if GCD then GCD.Apply(record,alpha) end end,
+        gcdGate=function(record,alpha,hold) if GCD then GCD.Apply(record,alpha,hold) end end,
     })
 end
 if Chains then Chains.Configure({safe=SafeNumber,secret=IsSecret,excluded=IsExcluded,evaluate=Evaluate,apply=ApplySettings}) end

@@ -822,6 +822,11 @@ end)()
     e.C_Spell.GetSpellCooldownDuration=function() error("unavailable") end
     g.Cast(1); g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false); assert(alpha==0 and hold)
     now=101.1; g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false); assert(alpha==1 and not hold)
+    e.C_Spell.GetSpellCooldown=function() return {isActive=false,isOnGCD=false} end
+    now=102; g.Cast(1); g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false); assert(alpha==0 and hold)
+    now=103.1; g.Begin(100,false); _,_,_,_,_,alpha,hold=g.Project(1,60,.9,.1,1,0,false); assert(alpha==1 and not hold)
+    record.gcdGate.SetAlpha=function(self,v) if rawequal(v,secret) then error("rejected") end; self.alpha=v end
+    g.Apply(record,secret,true); assert(record.gcdGate.alpha==0)
     db.gcdAware=false; g.Begin(100,false); _,_,_,_,_,alpha=g.Project(1,60,.9,.1,1,0,false); assert(alpha==1)
     print("PASS: protected GCD hold, native alpha forwarding, public cast expiry, off-GCD exclusion and disable")
 end)()

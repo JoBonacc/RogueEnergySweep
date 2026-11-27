@@ -6,10 +6,10 @@ local onGCD,cache,known={}, {}, {}
 local status="off"
 local gateCurve,gate,active,enabled=nil,1,nil,false
 local fallbackCount,projectCount,lastFallback=0,0,"none"
-local observedUntil=0
+local observedUntil,castUntil=0,0
 local function Now() return type(GetTime)=="function" and api.safe(GetTime()) or nil end
 function G.Configure(a) api=a end
-function G.Init(d) db=d; d.gcdAware=d.gcdAware==true; onGCD={}; cache={}; known={}; observedUntil=0; fallbackCount=0; projectCount=0; lastFallback="none" end
+function G.Init(d) db=d; d.gcdAware=d.gcdAware==true; onGCD={}; cache={}; known={}; observedUntil=0; castUntil=0; fallbackCount=0; projectCount=0; lastFallback="none" end
 function G.CooldownEvent(records)
     if not db or not db.gcdAware or not C_Spell or not C_Spell.GetSpellCooldown then return end
     local seen={}; local newlyActive=false
@@ -17,7 +17,7 @@ function G.CooldownEvent(records)
         local id=r.spellID
         if id and not seen[id] then
             seen[id]=true; local prior=onGCD[id]; onGCD[id]=nil
-            local ok,v=pcall(function() local info=C_Spell.GetSpellCooldown(id); return info and info.isOnGCD end)
+            local ok,v=pcall(function() local info=C_Spell.GetSpellCooldown(id); return info.isOnGCD end)
             if ok and not api.secret(v) and type(v)=="boolean" then onGCD[id]=v; if v and prior~=true then newlyActive=true end end
         end
     end
@@ -52,9 +52,9 @@ local function CanProject(id)
     -- avoids a stale false isOnGCD snapshot before the cooldown event arrives.
     -- Unknown abilities are not assumed to be on the GCD.
     if C_Spell and C_Spell.GetSpellInfo then
-        local ok,name=pcall(function() local info=C_Spell.GetSpellInfo(id); return info and info.name end)
+        local ok,name=pcall(function() local info=C_Spell.GetSpellInfo(id); return info.name end)
         if ok and not api.secret(name) and type(name)=="string" then
-            local core={["Sinister Strike"]=true,Backstab=true,Gouge=true,Kick=true,Eviscerate=true,["Slice and Dice"]=true,Ambush=true,["Cheap Shot"]=true,Garrote=true,Rupture=true,["Kidney Shot"]=true,Shank=true,["Death Mark"]=true}
+            local core={["Sinister Strike"]=true,Backstab=true,Gouge=true,Kick=true,Eviscerate=true,["Slice and Dice"]=true}
             known[id]=core[name]==true; return known[id]
         end
     end
@@ -65,7 +65,7 @@ end
 -- bounded visual hold, not a reconstruction of protected energy/timing.
 function G.Cast(id)
     if not db or not db.gcdAware or not id or not CanProject(id) then return end
-    local now=Now(); if now then observedUntil=now+1 end
+    local now=Now(); if now then castUntil=now+1; observedUntil=math.max(observedUntil,castUntil) end
 end
 local function NativeGate(d)
     local ok,a=pcall(function()
@@ -96,7 +96,6 @@ function G.Begin(max,demo)
     if C_Spell and C_Spell.GetSpellCooldown then
         local ok,infoActive,recovery,started,length,rate=pcall(function()
             local v=C_Spell.GetSpellCooldown(61304)
-            if not v then return end
             return v.isActive,v.timeUntilEndOfStartRecovery,v.startTime,v.duration,v.modRate
         end)
         if ok then
@@ -111,7 +110,6 @@ function G.Begin(max,demo)
             end
         end
     end
-    if active==false then status="actual energy (no GCD)"; return end
     if remaining and remaining>0 then
         active=true; gate=0
         local rate=Regen()
@@ -124,7 +122,13 @@ function G.Begin(max,demo)
     -- Prefer a confirmed public active flag, then the native opaque duration.
     -- A zero duration alongside active=true is inconsistent; hold conservatively.
     if active==true then gate=0; status="GCD hold (timing protected)"; return end
-    if remaining~=nil then active=false; status="actual energy (no GCD)"; return end
+    local now=Now()
+    if active==false or remaining~=nil then
+        -- A successful public cast can arrive before the cooldown API updates.
+        -- Cover this short race without forcing a hold on unrelated spells.
+        if now and now<castUntil then active=true; gate=0; status="GCD hold (public cast event)"; return end
+        active=false; status="actual energy (no GCD)"; return
+    end
     if api.secret(duration) or duration~=nil then
         local alpha=NativeGate(duration)
         if api.secret(alpha) or api.safe(alpha)~=nil then
@@ -132,7 +136,6 @@ function G.Begin(max,demo)
             return
         end
     end
-    local now=Now()
     if now and now<observedUntil then active=true; gate=0; status="GCD hold (public cast event)"; return end
     -- An event-confirmed on-GCD spell may be held even without timing data;
     -- a subsequent cooldown event clears it. Do not guess for unknown spells.
@@ -188,9 +191,9 @@ function G.Project(id,cost,fill,deficit,visibility,ready,countdown)
     if a and b then projectCount=projectCount+1; return f,d,v,r,true,1,false end
     return Fallback()
 end
-function G.Apply(record,alpha)
+function G.Apply(record,alpha,hold)
     if not record.gcdGate then return end
     local ok=pcall(record.gcdGate.SetAlpha,record.gcdGate,alpha)
-    if not ok then pcall(record.gcdGate.SetAlpha,record.gcdGate,1) end
+    if not ok then pcall(record.gcdGate.SetAlpha,record.gcdGate,hold and 0 or 1) end
 end
 function G.Status() return status.." | projections "..projectCount.." | holds "..fallbackCount.." | last hold "..lastFallback end
