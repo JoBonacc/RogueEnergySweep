@@ -375,7 +375,7 @@ rr.finisher=true; ready,source=signal(rr,secret); assert(ready==nil and source==
 rr.finisher=false; readyEnv.C_Spell.IsSpellUsable=function() return secret,secret end
 ready,source=signal(rr,secret); assert(ready==nil)
 assert(src:find('pcall(record.readyGate.SetAlpha,record.readyGate,alpha)',1,true))
-assert(src:find('SafeUpdateReady(record,readyAlpha,not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0',1,true))
+assert(src:find('SafeUpdateReady(record,readyAlpha,not suppressReady and not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0',1,true))
 assert(src:find('Clear(record); ClearReady(record); record.progressState="excluded"',1,true))
 assert(src:find('UI-HUD-ActionBar-Casting-Complete-Glow',1,true))
 assert(src:find('UI-HUD-ActionBar-GCD-Flipbook',1,true))
