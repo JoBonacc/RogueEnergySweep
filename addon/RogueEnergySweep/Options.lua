@@ -75,6 +75,7 @@ end
 local function Button(label,x,top,width,fn,selected,disabled)
     local b=Take("button",function() return CreateFrame("Button",nil,content,"UIPanelButtonTemplate") end)
     b:SetSize(width,25); At(b,x,top); b:SetText(label); b:SetScript("OnClick",fn)
+    b:SetScript("OnEnter",nil); b:SetScript("OnLeave",nil)
     if b.LockHighlight and b.UnlockHighlight then if selected then b:LockHighlight() else b:UnlockHighlight() end end
     if disabled then b:Disable() else b:Enable() end
     return b
@@ -93,7 +94,7 @@ local function Check(label,value,fn,desc)
     y=y+27
     if desc then local t=Text(desc,30,y,W-30,MUTED); y=y+math.max(16,t.GetStringHeight and t:GetStringHeight() or 16)+7 end
 end
-local function Slider(label,v,lo,hi,step,fn,unit)
+local function Slider(label,v,lo,hi,step,fn,unit,previewOnly)
     local l=Text(label..": "..v..(unit or ""),0,y,W,WHITE)
     local b=Take("slider",function()
         local name="RogueEnergySweepUnifiedSlider"..used.slider
@@ -107,7 +108,7 @@ local function Slider(label,v,lo,hi,step,fn,unit)
     b:SetScript("OnValueChanged",function(_,value)
         local n=math.floor(value/step+.5)*step
         l:SetText(label..": "..n..(unit or ""))
-        Commit(function() fn(n) end,false)
+        if previewOnly then fn(n); api.previewPaint(previewRecords,energy,start) else Commit(function() fn(n) end,false) end
     end)
     y=y+49
 end
@@ -142,8 +143,8 @@ local function Preview()
     end)
     Button("Test on my bars",350,y+36,150,function() api.command("demo") end)
     y=y+73
-    Slider("Preview energy",math.floor(energy+.5),0,100,1,function(v) energy=v; playing=false; window:SetScript("OnUpdate",nil) end)
-    if DB().progress=="countdown" then Slider("Post-spend start",start,0,100,1,function(v) start=v end) end
+    Slider("Preview energy",math.floor(energy+.5),0,100,1,function(v) energy=v; playing=false; window:SetScript("OnUpdate",nil) end,nil,true)
+    if DB().progress=="countdown" then Slider("Post-spend start",start,0,100,1,function(v) start=v end,nil,true) end
 end
 local function Colors(current,entries,palette,set,custom)
     local cols=8; local width=math.floor((W-7*5)/cols)
@@ -255,6 +256,14 @@ local function Mini(layout,x,top)
         end
     end
 end
+local function LayoutVariants(items,current,set)
+    for i,e in ipairs(items) do
+        local key=e[1]; local x=((i-1)%2)*258; local top=y+math.floor((i-1)/2)*52
+        Mini(key,x+4,top+3)
+        Button(e[2],x+76,top+5,176,function() Commit(function() set(key) end,true) end,current==key)
+    end
+    y=y+math.ceil(#items/2)*52
+end
 local function HUD()
     local d=DB(); local t=d.tracker
     if sub=="abilities" then
@@ -320,10 +329,10 @@ local function HUD()
     end
     if selected[1]=="segments" then
         Section("Threshold style")
-        Choices({{"segments","Segments"},{"staircase","Staircase"},{"lights","Threshold lights"},{"arc","Arc"}},t.layout,function(v) t.layout=v end,2)
+        LayoutVariants({{"segments","Segments"},{"staircase","Staircase"},{"lights","Threshold lights"},{"arc","Arc"}},t.layout,function(v) t.layout=v end)
     elseif selected[1]=="icons" then
         Section("Ability layout")
-        Choices({{"bars","Bars"},{"rings","Rings"},{"icons","Icons"},{"freeform","Freeform"}},t.layout,function(v) t.layout=v end,2)
+        LayoutVariants({{"bars","Bars"},{"rings","Rings"},{"icons","Icons"},{"freeform","Freeform"}},t.layout,function(v) t.layout=v end)
     elseif selected[1]=="arsenal" then
         Section("Cast-count style")
         Choices({{"circle","Circles"},{"diamond","Diamonds"},{"charge","Charges"},{"count","Counts"}},t.arsenalStyle,function(v) t.arsenalStyle=v end,2)
@@ -476,6 +485,7 @@ end
 local function Create()
     window=CreateFrame("Frame","RogueEnergySweepUnifiedOptions",UIParent,"BasicFrameTemplateWithInset")
     window:SetSize(760,620); window:SetPoint("CENTER"); window:SetFrameStrata("DIALOG"); window:EnableMouse(true)
+    if UIParent.GetWidth and UIParent.GetHeight then window:SetScale(math.min(1,UIParent:GetWidth()/780,UIParent:GetHeight()/640)) end
     window:SetMovable(true); window:SetClampedToScreen(true); window:RegisterForDrag("LeftButton")
     window:SetScript("OnDragStart",function(self) self:StartMoving() end); window:SetScript("OnDragStop",function(self) self:StopMovingOrSizing() end)
     if window.TitleText then window.TitleText:SetText("Rogue Energy Sweep") end
@@ -508,7 +518,7 @@ function O.Register()
     if launcher then return end
     launcher=CreateFrame("Frame","RogueEnergySweepSettingsLauncher")
     local title=launcher:CreateFontString(nil,"ARTWORK","GameFontNormalLarge"); title:SetPoint("TOPLEFT",16,-16); title:SetText("Rogue Energy Sweep")
-    local desc=launcher:CreateFontString(nil,"ARTWORK","GameFontHighlight"); desc:SetPoint("TOPLEFT",title,"BOTTOMLEFT",0,-12); desc:SetText("Manage energy readiness, HUD layouts and ability planning in one window.")
+    local desc=launcher:CreateFontString(nil,"ARTWORK","GameFontHighlight"); desc:SetPoint("TOPLEFT",title,"BOTTOMLEFT",0,-12); desc:SetWidth(420); desc:SetJustifyH("LEFT"); desc:SetText("Manage energy readiness, HUD layouts and ability planning in one window.")
     local open=CreateFrame("Button",nil,launcher,"UIPanelButtonTemplate"); open:SetSize(240,28); open:SetPoint("TOPLEFT",desc,"BOTTOMLEFT",0,-18); open:SetText("Open Rogue Energy Sweep settings"); open:SetScript("OnClick",function() O.Open("bars") end)
     local setup=CreateFrame("Button",nil,launcher,"UIPanelButtonTemplate"); setup:SetSize(240,28); setup:SetPoint("TOPLEFT",open,"BOTTOMLEFT",0,-8); setup:SetText("Quick setup"); setup:SetScript("OnClick",function() O.Open("setup") end)
     if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then

@@ -710,3 +710,64 @@ assert(warnings.Status():find("last error none",1,true),warnings.Status())
 print("PASS: warning energy windows, global precedence, duplicate suppression, local legacy opportunity, protected alpha, pulse lifecycle and template persistence")
 
 end)()
+
+;(function()
+    local oNS={}
+    local widgets={}
+    local function widget(kind,name,parent)
+        local w=trackerWidget(parent,kind,name)
+        widgets[#widgets+1]=w
+        for _,method in ipairs({"SetFontObject","SetTextColor","SetJustifyH","SetJustifyV","SetVerticalScroll","SetScrollChild","UpdateScrollChildRect","SetChecked","SetValueStep","SetObeyStepOnDrag","LockHighlight","UnlockHighlight","Enable","Disable","SetMinMaxValues"}) do
+            w[method]=function(self,...) self[method.."Args"]={...} end
+        end
+        function w:GetHeight() return 540 end
+        function w:GetWidth() return 1024 end
+        function w:GetStringHeight() return 16 end
+        function w:GetChecked() return self.SetCheckedArgs and self.SetCheckedArgs[1] end
+        function w:Click() if self.scripts.OnClick then self.scripts.OnClick(self) end end
+        function w:CreateTexture() return widget("Texture",nil,self) end
+        function w:CreateFontString() return widget("FontString",nil,self) end
+        return w
+    end
+    local parent=widget("Frame","UIParent")
+    local env2=setmetatable({UIParent=parent,unpack=table.unpack,UISpecialFrames={},CreateFrame=function(kind,name,parent) return widget(kind,name,parent) end},{__index=_G})
+    assert(loadfile("addon/RogueEnergySweep/Options.lua","t",env2))("RogueEnergySweep",oNS)
+    local options=oNS.Options
+    assert(options.Family("staircase")[1]=="segments" and options.Family("rings")[1]=="icons" and options.Family("arsenal")[1]=="arsenal")
+    assert(options.Cycle("off")=="opportunity" and options.Cycle("opportunity")=="warning" and options.Cycle("warning")=="off")
+    -- Use the real tracker and Chains configuration APIs under the native mocks.
+    oNS.Tracker=tracker; oNS.Chains=chains
+    local db2=trackerDB
+    db2.enabled=true; db2.mode="rising"; db2.progress="energy"; db2.color="amber"; db2.opacity=.9; db2.thickness=4; db2.tint=true; db2.tintOpacity=.15; db2.fillEffect="luminous"
+    db2.readyEffect="none"; db2.readyOpacity=.7; db2.showCategories={builder=true,finisher=true,other=true}; db2.excludedSpells={}
+    chains.Sync(allArsenal or {{spellID=1,cost=45,category="builder"},{spellID=2,cost=60,category="builder"},{spellID=3,cost=25,category="other"}},100)
+    local applied,painted,scanned=0,0,0
+    options.Configure({db=function() return db2 end,apply=function() applied=applied+1; options.Refresh() end,scan=function() scanned=scanned+1 end,
+        say=function(message) error(message) end,style=function(v) db2.mode=v end,progress=function(v) db2.progress=v end,
+        resetStyle=function() end, color=function() return {1,.78,.16} end,presets={{"amber","Gold"}},colors={amber={1,.78,.16}},custom=function() return true end,
+        filters=function() return {{id=1,name="Sinister Strike",tracked=true}} end,excluded=function() return false end,diagnostic=function() end,
+        status=function() return "ok" end,profile=function() end,profiling=function() return false end,command=function() end,
+        previewMake=function() return {} end,previewPaint=function() painted=painted+1 end,previewClear=function() end})
+    options.Register()
+    for _,entry in ipairs({{"bars"},{"bars","appearance"},{"bars","behavior"},{"bars","ready"},{"bars","filters"},{"hud"},{"hud","abilities"},{"hud","position"},{"hud","appearance"},{"planning"},{"planning","rules"},{"planning","global"},{"planning","appearance"},{"planning","templates"},{"advanced"},{"setup"}}) do
+        assert(options.Open(entry[1],entry[2]),"failed page "..table.concat(entry,"/"))
+    end
+    local function Click(label)
+        for i=#widgets,1,-1 do local w=widgets[i]; if w.shown and w.SetTextArgs and w.SetTextArgs[1]==label and w.scripts.OnClick then w:Click(); return true end end
+        error("no visible control: "..label)
+    end
+    assert(options.Open("bars"))
+    assert(Click("Bottom bar")); assert(db2.mode=="bar" and applied>0)
+    db2.tracker.layout="arsenal"; assert(options.Open("hud"))
+    assert(Click("* Cast counts")); assert(db2.tracker.layout=="arsenal")
+    for _,layout in ipairs({"arsenal","segments","staircase","lights","arc","dial","bars","rings","icons","freeform"}) do
+        db2.tracker.layout=layout; assert(options.Open("hud")); assert(options.Open("hud","appearance")); assert(options.Open("hud","position"))
+    end
+    assert(options.Open("planning","global")); assert(options.Open("planning","rules"))
+    -- Repeated visits must reuse controls, not allocate indefinitely.
+    local count=#widgets
+    for i=1,3 do assert(options.Open("planning","rules")); assert(options.Open("bars")); assert(options.Open("hud")) end
+    local after=#widgets; assert(after<=count+5,"unbounded settings widget allocation")
+    assert(painted>0)
+    print("PASS: unified settings all pages, all HUD layouts, navigation, native preview wiring, saved settings and widget reuse")
+end)()
