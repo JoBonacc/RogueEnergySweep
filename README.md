@@ -51,3 +51,5 @@ Energy Breakpoints adds four icon-free shared resource views: segmented bar, sta
 Energy Arsenal adds movable, color-coded alternative cast budgets: circles, diamonds, rectangular charges or numeric counts (native pip fallback when protected), horizontal or vertical. Reuses Ability Chains settings and tracker selection.
 
 Ability Chains now supports opportunity (+) and warning (!) follow-ups and global target rules such as reserving Kick energy on every other tracked spending button.
+
+**Unified settings (v0.20.0):** `/resweep` opens one window organized by intent, with contextual controls, HUD thumbnails, quick setup and direct Kick reservation. Legacy options remain available as `/resweep legacy`.

@@ -57,3 +57,6 @@ Only after all relevant checks pass, record build, addon version, date, client c
 
 ## v0.19.0 warning checklist
 - [ ] Verify positive rule migration; cycle local and global conditions, global priority and duplicate suppression, warning visibility only inside the energy window, over-cap thresholds, pulsing and disabled cleanup. Test Kick global rule, cost changes, protected values and action-bar paging. Warnings are energy-only and ignore target cooldowns.
+
+## v0.20.0 settings checklist
+- [ ] Open through slash and addon Settings, navigate every page, scroll at different UI scales, test previews, configure all HUD families and shared colors, edit global/local rules, use quick setup and reset. Check saved preference persistence and independent action sweep/planning switches. Verify no UI or taint errors in combat; legacy fallback remains available.

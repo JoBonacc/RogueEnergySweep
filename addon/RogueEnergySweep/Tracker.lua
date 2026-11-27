@@ -25,7 +25,7 @@ local function number(v,default,lo,hi)
 end
 local function Normalize(c)
     c=type(c)=="table" and c or {}
-    c.enabled=c.enabled==true; c.actionBars=not c.enabled or c.actionBars~=false
+    c.enabled=c.enabled==true; c.actionBars=c.actionBars~=false
     c.layout=layouts[c.layout] and c.layout or "dial"
     c.iconMode=modes[c.iconMode] and c.iconMode or "rising"
     c.color=colors[c.color] and c.color or "amber"
@@ -672,6 +672,12 @@ function T.Sync(records,maxEnergy)
     if refresh and panel:IsShown() then refresh() end
     return true
 end
+function T.OptionsEntries()
+    local out={}; for _,e in pairs(catalog) do if e.cost and e.cost>0 then out[#out+1]=e end end
+    table.sort(out,function(a,b) if a.name==b.name then return a.spellID<b.spellID end return a.name<b.name end)
+    return out
+end
+function T.ResetPosition() cfg.x,cfg.y=0,-180; cfg.positions={}; signature=nil end
 function T.Costs() return costs end
 function T.Begin(demo)
     if not cfg or not cfg.enabled or not root or not layoutOK or (#rows==0 and cfg.layout~="dial" and not breakpointLayouts[cfg.layout] and not (cfg.layout=="arsenal" and #arsenalRows>0)) then T.Hide(); return false end

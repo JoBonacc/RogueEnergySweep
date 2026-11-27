@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.20.0
+- Replace the normal settings experience with one scrollable, navigable window: Action bars, Energy HUD, Ability planning, Advanced and Quick setup. Contextual appearance and behavior pages, grouped visual HUD picker, direct Kick reservation, explicit local/global follow-up conditions, and native action preview.
+- Preserve all saved preferences and existing slash commands; legacy options remain available as `/resweep legacy`. Action-bar readiness and Ability Chains pips can be enabled independently; the advanced master switch still controls all features.
+
 ## v0.19.0
 - Ability Chains supports per-relationship opportunity and warning indicators, plus global follow-up rules applied across other energy-spending buttons. Warning diamonds use the target ability color and an exclamation cutout, optionally pulsing, only while the source is affordable and the follow-up would be unaffordable after the configured GCD regeneration. Globals take precedence (warnings first), with up to three visible follow-up slots. Existing positive rules migrate unchanged.
 - `/resweep chains kick` enables a global Kick warning if Kick is discovered on an action bar. No protected energy arithmetic; native bounded curves drive warnings. Energy-only, not a target cooldown or combo-point prediction.

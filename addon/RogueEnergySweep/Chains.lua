@@ -85,6 +85,31 @@ local function EditRule(e)
     for _,id in ipairs(r.follow) do copy.follow[#copy.follow+1]=id; if r.conditions then copy.conditions[id]=r.conditions[id] end end
     cfg.rules[e.id]=copy; return copy
 end
+-- Settings API: preserve existing saved rules and template semantics.
+function C.OptionsEntries() return ordered end
+function C.OptionsRule(id) local e=catalog[id]; return e and Rule(e) or {repeatPips=false,follow={}} end
+function C.OptionsColor(id) return GetColor(id) end
+function C.OptionsPalette() return palette end
+function C.SetRepeat(id,value) local e=catalog[id]; if e then EditRule(e).repeatPips=value==true; signature=nil; return true end end
+function C.SetColor(id,index) if catalog[id] and palette[index] then cfg.colors[id]=index; signature=nil; return true end end
+function C.SetLocal(id,target,condition)
+    local e=catalog[id]; if not e or id==target or not catalog[target] or cfg.globalFollow[target] then return false end
+    local old=Rule(e); local found
+    for i,v in ipairs(old.follow) do if v==target then found=i; break end end
+    if not found and condition~="off" and #old.follow>=3 then return false end
+    local r=EditRule(e)
+    if condition=="off" then if found then table.remove(r.follow,found) end; r.conditions[target]=nil
+    elseif condition=="opportunity" or condition=="warning" then if not found then r.follow[#r.follow+1]=target end; r.conditions[target]=condition
+    else return false end
+    signature=nil; return true
+end
+function C.SetGlobal(id,condition)
+    if condition=="off" then cfg.globalFollow[id]=nil; signature=nil; return true end
+    if not catalog[id] or (condition~="opportunity" and condition~="warning") then return false end
+    local count=0; for _ in pairs(cfg.globalFollow) do count=count+1 end
+    if count>=3 and not cfg.globalFollow[id] then return false end
+    cfg.globalFollow[id]=condition; signature=nil; return true
+end
 local function BuildPipCurve(lo,hi,partial,maximum)
     local ok,c=pcall(function()
         local curve=C_CurveUtil.CreateCurve()

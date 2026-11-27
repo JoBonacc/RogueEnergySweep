@@ -1,10 +1,11 @@
--- Rogue Energy Sweep 0.19.0 (WoW Forever)
+-- Rogue Energy Sweep 0.20.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...
 local Tracker=ns and ns.Tracker
 local Chains=ns and ns.Chains
 local GCD=ns and ns.GCD
+local Options=ns and ns.Options
 local _, playerClass = UnitClass("player")
 if playerClass ~= "ROGUE" then return end
 local ENERGY = Enum and Enum.PowerType and Enum.PowerType.Energy or 3
@@ -840,6 +841,7 @@ local function RebuildGroups()
         end
     end
     if Tracker then for cost in pairs(Tracker.Costs()) do AddCost(cost) end end
+    if Options then Options.Refresh() end
 end
 
 local function RegisterButton(button, costs)
@@ -1177,9 +1179,6 @@ local function UpdateCore()
         if trackerActive then Tracker.Group(cost,group,fill,deficit,visibility,readyAlpha,valid,directRange,comboAlpha,gateEnabled,cooldowns,cooldownEnabled,demo) end
         for _,record in ipairs(group.records) do
             record.renderError=nil
-            if DB.tracker and DB.tracker.actionBars==false and not demo then
-                Clear(record); ClearReady(record); if Chains then Chains.Clear(record) end; record.progressState="tracker only"
-            else
             local comboOK=ApplyComboGate(record,comboAlpha,gateEnabled)
             if not comboOK then lastComboSource="native gate rejected" end
             local excluded=not demo and IsExcluded(record)
@@ -1201,6 +1200,9 @@ local function UpdateCore()
                 local comboPublic=gateEnabled and record.finisher and SafeNumber(comboAlpha) or nil
                 local cooldownPublic=SafeNumber(alpha)
                 if Chains then Chains.Update(record,not demo and comboOK and cooldownOK and comboPublic~=0 and cooldownPublic~=0) end
+                if DB.tracker and DB.tracker.actionBars==false and not demo then
+                    Clear(record); ClearReady(record); record.progressState="action sweep off"
+                else
                 local actualFill,actualDeficit,actualVisibility,actualReady=fill,deficit,visibility,readyAlpha
                 if GCD then
                     fill,deficit,visibility,readyAlpha,record.gcdProjected=GCD.Project(record.spellID,cost,fill,deficit,visibility,readyAlpha,DB.progress=="countdown")
@@ -1228,8 +1230,8 @@ local function UpdateCore()
                     if not rendered and not record.mode then record.progressState="unavailable" end
                 end
                 fill,deficit,visibility,readyAlpha=actualFill,actualDeficit,actualVisibility,actualReady
+                end
             else Clear(record); ClearReady(record); if Chains then Chains.Clear(record) end; record.progressState="unavailable"; lastSource="energy unavailable" end
-            end
         end
     end
     if trackerActive then Tracker.Finish(demo) end
@@ -1362,7 +1364,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.19.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.20.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -1414,7 +1416,7 @@ local function DiagnosticReport()
         for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
     end
     local lines={
-        "Rogue Energy Sweep v0.19.0 diagnostic report",
+        "Rogue Energy Sweep v0.20.0 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
@@ -1505,6 +1507,7 @@ local function ApplySettings()
     if refreshPanel then refreshPanel() end
     if refreshAbilityFilters and abilityFilters and abilityFilters:IsShown() then refreshAbilityFilters() end
     if refreshReadyOptions and readyOptions and readyOptions:IsShown() then refreshReadyOptions() end
+    if Options then Options.Refresh() end
 end
 
 -- Keep options availability separate from saved preferences.
@@ -1997,20 +2000,21 @@ SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     if not DB then return end
     local cmd, arg = (msg or ""):lower():match("^%s*(%S*)%s*(.-)%s*$")
-    if cmd == "" or cmd == "options" then OpenOptions(); return
+    if cmd == "" or cmd == "options" then if Options and Options.Open("bars") then return end; OpenOptions(); return
+    elseif cmd=="legacy" then OpenOptions(); return
     elseif cmd == "status" then Status(); return
-    elseif cmd == "filters" then OpenAbilityFilters(); return
+    elseif cmd == "filters" then if Options and Options.Open("bars","filters") then return end; OpenAbilityFilters(); return
     elseif cmd == "diagnostics" then OpenDiagnostics(); return
     elseif cmd=="gcd" then
         if arg=="on" then DB.gcdAware=true elseif arg=="off" then DB.gcdAware=false else Help(); return end
     elseif cmd=="chains" and Chains then
-        if arg=="" then Chains.Open(); return end
+        if arg=="" then if Options and Options.Open("planning") then return end; Chains.Open(); return end
         if not Chains.Command(arg) then Help(); return end
     elseif cmd=="tracker" and Tracker then
-        if arg=="" then Tracker.Open(); return end
+        if arg=="" then if Options and Options.Open("hud") then return end; Tracker.Open(); return end
         if not Tracker.Command(arg) then Help(); return end
     elseif cmd=="ready" then
-        if arg=="" then OpenReadyOptions(); return end
+        if arg=="" then if Options and Options.Open("bars","ready") then return end; OpenReadyOptions(); return end
         if not READY_EFFECTS[arg] then Help(); return end
         DB.readyEffect=arg
     elseif cmd == "profile" and (arg=="on" or arg=="off") then
@@ -2084,6 +2088,32 @@ if Tracker then
 end
 if Chains then Chains.Configure({safe=SafeNumber,secret=IsSecret,excluded=IsExcluded,evaluate=Evaluate,apply=ApplySettings}) end
 if GCD then GCD.Configure({safe=SafeNumber,secret=IsSecret,evaluate=Evaluate}) end
+if Options then Options.Configure({
+    db=function() return DB end, apply=ApplySettings, scan=RequestScan, say=Say,
+    style=SetStyle, progress=SetProgress, resetStyle=ResetAppearance, color=ResolveColor,
+    presets=PRESETS, colors=COLORS, custom=function() return OpenCustomColorPicker(ApplySettings) end,
+    filters=AbilityFilterEntries, excluded=IsExcluded, diagnostic=OpenDiagnostics,
+    status=ProgressSummary, profile=SetProfiling, profiling=function() return performanceSample.enabled end,
+    command=function(text) SlashCmdList.ROGUEENERGYSWEEP(text) end,
+    previewMake=function(parent)
+        local result={}
+        for i,e in ipairs({{45,"Interface\\Icons\\Spell_Shadow_RitualOfSacrifice"},{35,"Interface\\Icons\\Ability_Rogue_Eviscerate"},{25,"Interface\\Icons\\Ability_Kick"}}) do
+            local button=CreateFrame("Frame",nil,parent); button:SetSize(42,42); button:SetPoint("TOPLEFT",parent,"TOPLEFT",20+(i-1)*79,-6)
+            button.icon=button:CreateTexture(nil,"BACKGROUND"); button.icon:SetAllPoints(button); button.icon:SetTexture(e[2])
+            local rec=MakeOverlay(button,true); rec.previewCost=e[1]; result[#result+1]=rec
+            local label=parent:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall"); label:SetPoint("TOP",button,"BOTTOM",0,-4); label:SetText(e[1].." energy")
+        end
+        return result
+    end,
+    previewPaint=function(list,energy,start)
+        for _,rec in ipairs(list) do
+            local cost=rec.previewCost; local fill=math.min(1,energy/cost)
+            if DB.progress=="countdown" then local low=math.min(start,cost-.001); fill=math.max(0,math.min(1,(energy-low)/(cost-low))) end
+            Style(rec); Paint(rec,fill,1-fill,energy<cost and 1 or 0); SafeUpdateReady(rec,energy>=cost and 1 or 0,true,true)
+        end
+    end,
+    previewClear=function(list) for _,rec in ipairs(list) do ClearReady(rec); Clear(rec) end end,
+}) end
 
 local events = CreateFrame("Frame")
 for _, event in ipairs({"ADDON_LOADED","PLAYER_ENTERING_WORLD","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED",
@@ -2098,7 +2128,7 @@ end
 events:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" then
         local name = ...
-        if name == ADDON_NAME then InitDB(); local ok,err=pcall(CreateOptions); if not ok then ErrorNote(err); optionsPanel=nil; Say("Options initialization failed; use /resweep help.") end
+        if name == ADDON_NAME then InitDB(); local ok,err=pcall(function() if Options then Options.Register() else CreateOptions() end end); if not ok then ErrorNote(err); Say("Options initialization failed; use /resweep options or /resweep legacy.") end
         elseif DB and (name == "Bartender4" or name == "Dominos" or name == "ElvUI") then RequestScan() end
         return
     end
