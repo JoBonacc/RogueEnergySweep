@@ -109,3 +109,6 @@ Improved Gouge reads active combat trait configuration and active rank (not lega
 
 ### v0.24.1 diagnostic trace
 Record Gouge, Kick, and ordinary GCD-triggering abilities. First snapshot includes all fields; later lines only show changed fields (unchanged means no observed change). Target Gouge aura fields are queried, not inferred. GCD candidates 29515 and 61304 are probes, not proof of GCD access. `isOnGCD` is reported only on SPELL_UPDATE_COOLDOWN. Exact numeric IDs are retained.
+
+## v0.25.0 behavior
+Known Classic spell-rank families migrate saved settings forward when a higher rank is confirmed by the public spellbook API. Explicit higher-rank settings win conflicts. Unknown abilities are not merged by name. Conditional costs apply only with confirmed aura requirements; ambiguous multi-row or percentage/per-second energy costs are withheld. Planning widgets are preallocated outside combat for existing overlays and visible action buttons; hidden/unloaded third-party buttons may still defer allocation until combat ends.

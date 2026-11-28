@@ -79,3 +79,6 @@ Only after all relevant checks pass, record build, addon version, date, client c
 
 ## v0.24.1 live evidence (build 71139)
 User v0.24.0 trace: energy secret both in/out of combat; max=100 and target combo points readable; regen=10/10 outside combat, secret in combat; readable cast IDs, cost rows stable in tested sequence; active Improved Gouge rank 0; native sinks accepted secret energy curve result outside combat. Classic rank IDs returned unchanged by base-spell APIs. User reports Gouge remaining cooldown readable in combat. Kick, active Gouge effect, GCD numeric access, nonzero Improved Gouge rank and temporary cost modifiers remain unverified. v0.24.1 adds diagnostic probes, no gameplay changes.
+
+## v0.25.0
+Build 71139 v0.24.1 recording: cooldown duration and GCD timing become secret in addon combat context (29515 valid GCD probe, 61304 absent); isActive and event-scoped isOnGCD readable; Gouge aura query nil with secrecy predicate true. No numerical timer fallback added. Conditional multi-row costs not verified live: conservative omission, not speculative summation. New rank migration, layout allocation, and cost handling need live regression testing.

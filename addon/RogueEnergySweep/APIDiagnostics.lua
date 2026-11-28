@@ -211,7 +211,7 @@ local function Capture(event,id,force)
     entries[#entries+1]=string.format("%.3f %s%s%s",now-started,event,label,line~="" and " | "..line or " | unchanged")
 end
 function D.SelfTest()
-    local out={"Rogue Energy Sweep v0.24.1 API self-test","Values: <secret>, <nil>, <missing>, <error> are distinct; no secret values are serialized."}
+    local out={"Rogue Energy Sweep v0.25.0 API self-test","Values: <secret>, <nil>, <missing>, <error> are distinct; no secret values are serialized."}
     local _,version,build,_,interface=Call(GetBuildInfo)
     out[#out+1]="client="..Format(version).." build="..Format(build).." interface="..Format(interface)
     out[#out+1]=Resources(); local s=C_Secrets

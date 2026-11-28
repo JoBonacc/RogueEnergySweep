@@ -127,10 +127,10 @@ local function Remember(records)
     if not cfg.auto then
         for id,selected in pairs(cfg.selected) do
             if selected and type(id)=="number" and (not catalog[id] or not catalog[id].current) then
-                local known=catalog[id]~=nil
-                local checker=IsPlayerSpell or IsSpellKnown
+                local known
+                local checker=C_SpellBook and C_SpellBook.IsSpellKnown
                 if type(checker)=="function" then
-                    local ok,v=pcall(checker,id)
+                    local ok,v=pcall(checker,id,0)
                     if ok and not api.secret(v) and type(v)=="boolean" then known=v end
                 end
                 if known then
@@ -662,7 +662,7 @@ function T.Sync(records,maxEnergy)
         end
     end
     local key=table.concat(bits,"|")
-    if signature==key then SetLocked(); if refresh and panel:IsShown() then refresh() end; return false end
+    if signature==key and (layoutOK or not cfg.enabled) then SetLocked(); if refresh and panel:IsShown() then refresh() end; return false end
     signature=key; T.Hide(); rows={}; byCost={}; costs={}; layoutOK=false
     if cfg.enabled then
         local ok,err=pcall(Layout,entries)

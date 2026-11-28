@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.25.0
+- Migrate saved settings forward across explicit learned Classic spell-rank families, including follow-up targets and HUD selections. Higher-rank explicit settings win conflicts.
+- Honor required-aura cost rows; withhold ambiguous, protected or unsupported percentage/per-second costs instead of guessing.
+- Preallocate planning widgets for existing overlays and visible action buttons outside combat; retry deferred layouts. Avoid unchanged planning curve rebuilds and retry failed HUD layouts.
+- Replace legacy tracker known-spell lookup with C_SpellBook.IsSpellKnown. Keep protected cooldown and regeneration prediction unchanged.
+
 ## v0.24.1
 - Capture Gouge target aura, Kick/Gouge cooldowns, actual cast cooldowns and Classic/Retail GCD probes in the diagnostic recorder; report cooldown-event-only GCD flags.
 - Preserve exact numeric IDs and emit changed fields only. No gameplay behavior changed.

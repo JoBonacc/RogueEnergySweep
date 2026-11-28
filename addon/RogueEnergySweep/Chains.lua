@@ -4,6 +4,7 @@ local C={}; ns.Chains=C
 local api,db,cfg,maxEnergy= nil,nil,nil,100
 local catalog,ordered,tracked,curves,samples={},{},{},{},{}
 local panel,refresh,signature
+local pendingLayout=false
 local errorText="none"
 local gougeRank,comboPoints,hasKidney=nil,nil,false
 local talentDirty=true
@@ -44,7 +45,7 @@ local function Normalize(c)
     return c
 end
 function C.Configure(a) api=a end
-function C.Init(d) db=d; d.chains=Normalize(d.chains); cfg=d.chains; signature=nil; catalog={}; ordered={}; gougeRank=nil; comboPoints=nil; hasKidney=false; talentDirty=true end
+function C.Init(d) db=d; d.chains=Normalize(d.chains); cfg=d.chains; signature=nil; catalog={}; ordered={}; gougeRank=nil; comboPoints=nil; hasKidney=false; talentDirty=true; pendingLayout=false end
 local function RepeatThreshold(cost,n,regen)
     return cost+(n-1)*math.max(0,cost-regen)
 end
@@ -372,18 +373,33 @@ local function FollowDefinitions(entry,rule)
     end
     return defs
 end
+local function Reserve(record)
+    local r=tracked[record]
+    if not r then
+        if InCombatLockdown and InCombatLockdown() then pendingLayout=true; return nil end
+        local frame=CreateFrame("Frame",nil,record.comboGate)
+        frame:EnableMouse(false); frame:SetAllPoints(record.frame); frame:SetFrameLevel(record.frame:GetFrameLevel()+9); frame:Hide()
+        r={frame=frame,pips={},count=0}; tracked[record]=r
+    end
+    if not InCombatLockdown or not InCombatLockdown() then
+        for i=#r.pips+1,9 do r.pips[i]=NewPip(r.frame); r.pips[i].frame:Hide() end
+    end
+    return r
+end
+function C.Reserve(overlays)
+    if not cfg or not cfg.enabled or (InCombatLockdown and InCombatLockdown()) then return end
+    for _,record in pairs(overlays) do
+        local ok=pcall(Reserve,record)
+        if not ok then pendingLayout=true end
+    end
+end
 local function Setup(record,entry)
     local rule=Rule(entry)
     local defs=cfg.repeatEnabled and rule.repeatPips and RepeatDefinitions(entry.id,entry.cost,maxEnergy,cfg.maxPips,cfg.regen,cfg.fraction,cfg.repeatCount=="additional") or {}
     for _,d in ipairs(FollowDefinitions(entry,rule)) do defs[#defs+1]=d end
     if #defs==0 then if tracked[record] then tracked[record].count=0 end; Clear(record); return end
-    local r=tracked[record]
-    if not r then
-        if InCombatLockdown and InCombatLockdown() then return end
-        local frame=CreateFrame("Frame",nil,record.comboGate)
-        frame:EnableMouse(false); frame:SetAllPoints(record.frame); frame:SetFrameLevel(record.frame:GetFrameLevel()+9); frame:Hide()
-        r={frame=frame,pips={}}; tracked[record]=r
-    end
+    local r=Reserve(record)
+    if not r then return end
     r.count=#defs; r.frame:SetAlpha(cfg.opacity)
     local width=36
     if record.frame.GetWidth then local ok,v=pcall(record.frame.GetWidth,record.frame); if ok then width=api.safe(v) or width end end
@@ -400,7 +416,7 @@ local function Setup(record,entry)
     for i,d in ipairs(defs) do
         local p=r.pips[i]
         if not p then
-            if InCombatLockdown and InCombatLockdown() then r.count=i-1; break end
+            if InCombatLockdown and InCombatLockdown() then pendingLayout=true; r.count=i-1; break end
             p=NewPip(r.frame); r.pips[i]=p
         end
         StopPulse(p)
@@ -449,27 +465,30 @@ function C.Sync(records,max)
     Remember(records); maxEnergy=max
     hasKidney=false; local hasGouge=false
     for _,e in ipairs(ordered) do local k=ControlKind(e.id); if k=="kidney" then hasKidney=true elseif k=="gouge" then hasGouge=true end end
-    if hasGouge and talentDirty then gougeRank=ReadGougeRank(); talentDirty=false end
+    if hasGouge and talentDirty then gougeRank=ReadGougeRank(); talentDirty=gougeRank==nil end
     comboPoints=hasKidney and ReadCombo() or nil
     local bits={tostring(cfg.enabled),tostring(cfg.repeatEnabled),cfg.repeatCount,cfg.placement,cfg.align,cfg.repeatShape,cfg.outline,cfg.brightness,cfg.inactiveOpacity,cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),tostring(cfg.pulseWarnings),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max,cfg.controlMargin,tostring(gougeRank),tostring(comboPoints)}
     local f=cfg.followStyle
     for _,v in ipairs({tostring(cfg.separateFollow),f.size,f.spacing,f.placement,f.align,f.shape,f.outline,f.brightness,f.inactiveOpacity,f.offset}) do bits[#bits+1]=v end
     for _,e in ipairs(ordered) do
-        local r=Rule(e); bits[#bits+1]=e.id..":"..e.cost..":"..tostring(r.repeatPips)..":"..select(2,GetColor(e.id))
+        local r=Rule(e); bits[#bits+1]=e.id..":"..e.cost..":"..tostring(e.category)..":"..tostring(e.finisher)..":"..tostring(r.repeatPips)..":"..select(2,GetColor(e.id))
         bits[#bits+1]="global:"..tostring(cfg.globalFollow[e.id])..":window:"..tostring(r.window or 1)
         for _,id in ipairs(r.follow) do local t=r.timing and r.timing[id]; bits[#bits+1]=tostring(id)..":"..tostring(r.conditions and r.conditions[id])..":"..tostring(t and t.mode)..":"..tostring(t and t.seconds) end
     end
-    for _,r in ipairs(records) do bits[#bits+1]=tostring(r)..":"..tostring(r.spellID)..":"..tostring(api.excluded(r)) end
+    for _,r in ipairs(records) do
+        local width=r.frame and r.frame.GetWidth and PublicCall(r.frame.GetWidth,r.frame)
+        bits[#bits+1]=tostring(r)..":"..tostring(r.spellID)..":"..tostring(api.excluded(r))..":"..tostring(api.safe(width))
+    end
     local key=table.concat(bits,"|")
-    if key~=signature or (not InCombatLockdown or not InCombatLockdown()) then
-        signature=key; C.Hide(); curves={}; samples={}
+    if key~=signature or (pendingLayout and (not InCombatLockdown or not InCombatLockdown())) then
+        pendingLayout=false; signature=key; C.Hide(); curves={}; samples={}
         for _,r in pairs(tracked) do r.count=0 end
         if cfg.enabled then
             for _,r in ipairs(records) do
                 local e=catalog[r.spellID]
                 if e and r.cost and r.cost>0 and not api.excluded(r) then
                     local ok,err=pcall(Setup,r,e)
-                    if not ok then errorText=tostring(err); if tracked[r] then tracked[r].count=0 end; Clear(r) end
+                    if not ok then pendingLayout=true; errorText=tostring(err); if tracked[r] then tracked[r].count=0 end; Clear(r) end
                 end
             end
         end

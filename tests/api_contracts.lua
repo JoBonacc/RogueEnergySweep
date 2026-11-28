@@ -33,6 +33,11 @@ env.C_ActionBar.GetSpell=function() error("restricted") end; assert(spell(1)==ni
 env.C_Spell={GetSpellPowerCost=function() return {{type=0,cost=5},{type=3,cost=45,minCost=40}} end}
 local n,known=cost(123); assert(n==40 and known)
 env.C_Spell.GetSpellPowerCost=function() return {{type=3,cost=45}} end; n,known=cost(123); assert(n==45 and known)
+env.C_Spell.GetSpellPowerCost=function() return {{type=3,cost=30,requiredAuraID=123,hasRequiredAura=false},{type=3,cost=45,requiredAuraID=0,hasRequiredAura=false}} end; n,known=cost(123); assert(n==45 and known)
+env.C_Spell.GetSpellPowerCost=function() return {{type=3,cost=30,requiredAuraID=123,hasRequiredAura=true}} end; n,known=cost(123); assert(n==30 and known)
+env.C_Spell.GetSpellPowerCost=function() return {{type=3,cost=30,requiredAuraID=123,hasRequiredAura=true},{type=3,cost=45}} end; n,known=cost(123); assert(n==nil and not known)
+env.C_Spell.GetSpellPowerCost=function() return {{type=3,cost=30,requiredAuraID=123,hasRequiredAura=secret}} end; n,known=cost(123); assert(n==nil and not known)
+env.C_Spell.GetSpellPowerCost=function() return {{type=3,cost=30,costPercent=10}} end; n,known=cost(123); assert(n==nil and not known)
 env.C_Spell.GetSpellPowerCost=function() return {{type=3,cost=secret}} end; n,known=cost(123); assert(n==nil and not known)
 env.C_Spell.GetSpellPowerCost=function() return secret end; n,known=cost(123); assert(n==nil and not known)
 env.C_Spell.GetSpellPowerCost=function() return {{type=0,cost=5}} end; local _,_,readable=cost(123); assert(readable)
@@ -918,4 +923,17 @@ end)()
     assert(D.Start()); for i=1,500 do if scripts.OnEvent then scripts.OnEvent(frame,"PLAYER_TARGET_CHANGED") end end
     assert(D.Status():find("limit reached",1,true)); assert(not scripts.OnUpdate)
     print("PASS: opt-in API diagnostics, secret-safe formatting, read-only snapshots, event capture, bounded recording and cleanup")
+end)()
+
+;(function()
+    local ns={}; local known={[1758]=true,[2589]=true,[1777]=true}
+    local e=setmetatable({C_SpellBook={IsSpellKnown=function(id,bank) assert(bank==0); return known[id] or false end},issecretvalue=function(v) return v==secret end},{__index=_G})
+    assert(loadfile("addon/RogueEnergySweep/SpellFamilies.lua","t",e))("RogueEnergySweep",ns)
+    local d={excludedSpells={[1752]=true},chains={rules={[1752]={follow={53,2589,1776},conditions={[53]="warning"},timing={[53]={mode="custom",seconds=3}}},[1757]={follow={53,1776,2589},conditions={[53]="opportunity"},timing={[53]={mode="custom",seconds=4}}}},colors={[53]=1,[2589]=2},globalFollow={[1776]="warning"}},tracker={selected={[53]=true},positions={[53]={x=5,y=6}}}}
+    ns.SpellFamilies.Migrate(d)
+    assert(d.excludedSpells[1758] and not d.excludedSpells[1752]); local r=d.chains.rules[1758]
+    assert(#r.follow==2 and r.follow[1]==2589 and r.follow[2]==1777 and r.conditions[2589]=="opportunity" and r.timing[2589].seconds==4)
+    assert(d.chains.colors[2589]==2 and d.chains.globalFollow[1777]=="warning" and d.tracker.selected[2589] and d.tracker.positions[2589].x==5)
+    ns.SpellFamilies.Migrate(d); assert(#r.follow==2)
+    print("PASS: rank migration across rules, targets, timing, colors, filters and HUD selection/positions")
 end)()

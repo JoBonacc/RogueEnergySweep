@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.24.1 (WoW Forever)
+-- Rogue Energy Sweep 0.25.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...
@@ -295,6 +295,7 @@ local function GetEnergyCost(spellID)
     end
 
     local energyCost,hasEnergy,energyKnown=nil,false,true
+    local activeEnergyRows=0
     local finisher=FINISHERS[spellID]==true
     for i = 1, #costs do
         local row = costs[i]
@@ -303,13 +304,25 @@ local function GetEnergyCost(spellID)
             local isEnergy = powerType == ENERGY or (not IsSecret(row.name) and row.name == "ENERGY")
 
             if isEnergy then
-                local cost = SafeNumber(row.minCost)
-                if cost == nil then
-                    cost = SafeNumber(row.cost)
+                -- Conditional rows apply only when the API confirms the aura.
+                -- Multiple applicable energy rows are ambiguous: do not guess
+                -- whether they add together or override one another.
+                local aura=SafeNumber(row.requiredAuraID)
+                local applies=true
+                if IsSecret(row.requiredAuraID) then energyKnown=false; applies=false
+                elseif aura and aura>0 then
+                    if IsSecret(row.hasRequiredAura) or type(row.hasRequiredAura)~="boolean" then energyKnown=false; applies=false
+                    else applies=row.hasRequiredAura end
                 end
-                -- Unknown/restricted costs are not free abilities.
-                if cost == nil then energyKnown=false
-                elseif energyKnown and not hasEnergy then energyCost,hasEnergy=cost,true end
+                if applies then
+                    activeEnergyRows=activeEnergyRows+1
+                    local cost=SafeNumber(row.minCost)
+                    if cost==nil then cost=SafeNumber(row.cost) end
+                    local percent,perSec=SafeNumber(row.costPercent),SafeNumber(row.costPerSec)
+                    if cost==nil or cost<0 or IsSecret(row.costPercent) or IsSecret(row.costPerSec)
+                        or (percent and percent~=0) or (perSec and perSec~=0) or activeEnergyRows>1 then energyKnown=false
+                    else energyCost,hasEnergy=cost,true end
+                end
             elseif powerType==4 or (not IsSecret(row.name) and row.name=="COMBO_POINTS") then
                 local min=SafeNumber(row.minCost)
                 local cost=SafeNumber(row.cost)
@@ -870,8 +883,8 @@ local function RegisterButton(button, costs)
         entry = {cost=cost, hasEnergyCost=hasEnergyCost, finisher=finisher}
         costs[spellID] = entry
     end
-    if not entry.hasEnergyCost then return end
     local record = overlays[button]
+    if not entry.hasEnergyCost and not record then return end
     if not record then
         if InCombatLockdown() then rescanPending = true; return end
         record = MakeOverlay(button)
@@ -899,8 +912,10 @@ local function RefreshBindings()
     wipe(records)
     for _, record in pairs(overlays) do record.spellID, record.cost, record.finisher, record.category = nil, nil, nil, nil end
     RefreshMaxEnergy()
+    if ns.SpellFamilies and not InCombatLockdown() then ns.SpellFamilies.Migrate(DB) end
     local costs = {}
     for _, button in ipairs(knownButtons) do RegisterButton(button, costs) end
+    if Chains then Chains.Reserve(overlays) end
     RebuildGroups()
 end
 
@@ -926,6 +941,13 @@ local function ScanButtons()
         local button = _G["ActionButton" .. n]
         if button and not overlays[button] then MakeOverlay(button) end
     end
+    -- Reserve planning widgets for known visible action buttons, including
+    -- third-party buttons, before a protected page change.
+    if DB.chains and DB.chains.enabled then
+        for _,button in ipairs(knownButtons) do
+            if not overlays[button] and button.IsVisible and button:IsVisible() and GetButtonSlot(button) then MakeOverlay(button) end
+        end
+    end
     RefreshBindings()
 end
 
@@ -942,6 +964,7 @@ local function RefreshCosts()
             entry = {cost=found and cost or nil,finisher=finisher}
             costs[record.spellID] = entry
         end
+        if record.finisher~=entry.finisher then changed=true end
         record.finisher=entry.finisher
         record.category=SpellCategory(record.spellID,entry.finisher)
         if entry.cost ~= record.cost then record.cost = entry.cost; changed = true end
@@ -1373,7 +1396,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.21.1 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.25.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -1425,7 +1448,7 @@ local function DiagnosticReport()
         for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
     end
     local lines={
-        "Rogue Energy Sweep v0.24.1 diagnostic report",
+        "Rogue Energy Sweep v0.25.0 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
@@ -1509,6 +1532,8 @@ local optionsPanel, settingsCategory, refreshPanel, refreshAbilityFilters, abili
 local readyOptions,refreshReadyOptions
 local function ApplySettings()
     SaveAppearance()
+    if Chains then Chains.Reserve(overlays) end
+    if DB.chains and DB.chains.enabled and not InCombatLockdown() then RequestScan() end
     if Tracker and Tracker.Sync(records,lastMaxEnergy) then RebuildGroups() end
     if Chains then Chains.Sync(records,lastMaxEnergy) end
     for _,record in pairs(overlays) do Style(record) end
@@ -2140,7 +2165,7 @@ events:SetScript("OnEvent", function(_, event, ...)
         return
     end
     if not DB then return end
-    if event == "PLAYER_ENTERING_WORLD" then CheckCompatibility(true); CheckBuild(true); RequestScan()
+    if event == "PLAYER_ENTERING_WORLD" then if Chains then Chains.InvalidateTalents() end; CheckCompatibility(true); CheckBuild(true); RequestScan()
     elseif event=="SPELL_UPDATE_USABLE" then
         if DB.enabled and READY_ONESHOT[DB.readyEffect] then RequestUpdate() end
     elseif event=="SPELL_UPDATE_COOLDOWN" or event=="ACTIONBAR_UPDATE_COOLDOWN" or event=="SPELL_UPDATE_CHARGES" then
