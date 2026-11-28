@@ -69,3 +69,6 @@ Only after all relevant checks pass, record build, addon version, date, client c
 
 ## v0.21.0
 - [ ] Verify additional/total selection on 45-energy builder at 45/80/100 energy, partial and inactive modes, persistence, Arsenal total counts and unchanged follow-up warnings. Check larger/outside pips, left/center/right alignment, shapes, outline, brightness, opacity, and offset with adjacent bars. Confirm GCD prediction is absent from both settings interfaces and real energy remains visible.
+
+## v0.21.1
+- [ ] In countdown mode, spend energy then Pick Pocket before the timer completes; confirm no reset. Repeat with other free spells and genuine energy spenders both in and out of restricted combat. Check reset/skip counters and all four renderers.

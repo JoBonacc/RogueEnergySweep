@@ -806,3 +806,38 @@ end)()
     assert(not src:find("GCD.Project",1,true) and not src:find("GCD.Begin",1,true))
     print("PASS: additional/total thresholds, partial pips, over-cap and zero marginal costs, visibility preferences, Arsenal independence and GCD retirement")
 end)()
+
+;(function()
+    local decision=assert(load(section("local function IsSecret","local MODES")..section("local function GetEnergyCost","-- Forever combo points").."\nreturn CountdownCastDecision","countdown cast decisions","t",env))()
+    local function Expect(rows,expected,reason,id)
+        env.C_Spell.GetSpellPowerCost=function() return rows end
+        local reset,why=decision(id or 123)
+        assert(reset==expected and why==reason,tostring(why))
+    end
+    Expect(nil,false,"unknown") -- documented nil for no resource costs (Pick Pocket)
+    Expect({},false,"free")
+    Expect({{type=0,cost=5}},false,"free")
+    Expect({{type=3,cost=0}},false,"free")
+    Expect({{type=3,cost=45}},true,"confirmed")
+    Expect({{type=3,cost=60,minCost=40}},true,"confirmed")
+    Expect({{type=3,cost=secret}},false,"unknown")
+    Expect(secret,false,"unknown")
+    Expect({secret},false,"unknown")
+    Expect({{type=secret,name=secret,cost=45}},false,"unknown")
+    Expect({{type=3,cost=45}},false,"unknown",secret)
+    env.C_Spell.GetSpellPowerCost=function() error("unavailable") end
+    local reset,reason=decision(123); assert(not reset and reason=="unknown")
+    assert(src:find("if reset then progressGeneration=progressGeneration+1 end",1,true))
+    -- Drive the actual protected countdown with the same decision contract.
+    local g={}; local samples=0
+    local e=setmetatable({SafeNumber=function(v) if type(v)=="number" then return v end end,progressGeneration=0,MakeCurve=function() return {} end,Evaluate=function() samples=samples+1; return secret,true end},{__index=_G})
+    local run=assert(load(section("local function Countdown","local function ResetProgress").."\nreturn Countdown","cast snapshot","t",e))()
+    run(g,60,secret,secret); assert(samples==2)
+    env.C_Spell.GetSpellPowerCost=function() return nil end
+    if decision(921) then e.progressGeneration=e.progressGeneration+1 end
+    run(g,60,secret,secret); assert(samples==2 and g.generation==0)
+    env.C_Spell.GetSpellPowerCost=function() return {{type=3,cost=45}} end
+    if decision(1752) then e.progressGeneration=e.progressGeneration+1 end
+    run(g,60,secret,secret); assert(samples==4 and g.generation==1)
+    print("PASS: free/nil-cost and protected cast decisions preserve countdown; confirmed energy cast resets")
+end)()

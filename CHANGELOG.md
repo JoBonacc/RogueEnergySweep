@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.21.1
+- Fix countdown animation restarting on free abilities such as Pick Pocket. Only confirmed positive energy costs trigger cast-based snapshot resets; nil, unavailable, protected and zero costs preserve the previous snapshot. Public energy decreases still reset naturally. Diagnostics report confirmed resets and skipped free/unknown casts.
+
 ## v0.21.0
 - Ability planning repeat pips now represent additional casts by default; choose Total casts to include the first. Standalone Arsenal continues to show total casts. Follow-up opportunities and warning thresholds are unchanged.
 - New action-button pip visibility controls: outside/inside placement, alignment, circle/square/diamond repeat shapes, size up to 24px, spacing, contrast outline, brightness, inactive opacity, expanded offset. Existing colors and rules retained.

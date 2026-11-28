@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.21.0 (WoW Forever)
+-- Rogue Energy Sweep 0.21.1 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...
@@ -13,6 +13,7 @@ local overlays, records, knownButtons, groups = {}, {}, {}, {}
 local lastMaxEnergy = 100
 local updatePending, rescanPending, rescanScheduled, costPending, bindingPending = false, false, false, false, false
 local progressGeneration = 0
+local castResetStats={confirmed=0,free=0,unknown=0,last="none"}
 local demo = false
 local demoGeneration = 0
 local lastSource, lastError = "not evaluated", "none"
@@ -313,11 +314,26 @@ local function GetEnergyCost(spellID)
                 local min=SafeNumber(row.minCost)
                 local cost=SafeNumber(row.cost)
                 if (min and min>0) or (min==nil and cost and cost>0) then finisher=true end
+            elseif powerType==nil and IsSecret(row.name) then
+                energyKnown=false
             end
+        else energyKnown=false
         end
     end
     if not energyKnown then return nil,false,false,finisher end
     return energyCost,hasEnergy,true,finisher
+end
+
+-- A nil cost result may mean a free spell (documented), an unknown spell,
+-- or inaccessible data. None is evidence of an energy spend. Never reset a
+-- protected countdown merely because spell identity or cost is unavailable.
+local function CountdownCastDecision(spellID)
+    local id=SafeNumber(spellID)
+    if not id then return false,"unknown" end
+    local cost,hasEnergy,readable=GetEnergyCost(id)
+    if not readable then return false,"unknown" end
+    if hasEnergy and cost and cost>0 then return true,"confirmed" end
+    return false,"free"
 end
 
 -- Forever combo points belong to the current target. Never substitute generic
@@ -1085,7 +1101,7 @@ local function Countdown(group, cost, fill, deficit)
     local public = SafeNumber(fill)
     local reset = group.public ~= (public ~= nil) or (not public and group.generation ~= progressGeneration)
     -- When energy is public, any actual spend (including outside spell events)
-    -- can start a fresh countdown. Protected energy uses successful spell events.
+    -- can start a fresh countdown. Protected energy uses confirmed energy-cost casts.
     if public and (group.start == nil or (group.lastFill and public < group.lastFill-0.00001)) then reset=true end
     group.lastFill=public
     if reset then
@@ -1357,7 +1373,7 @@ local function Status()
             if record.mode == "perimeter" then perimeter = perimeter + 1 end
         end
     end
-    Say(string.format("v0.21.0 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
+    Say(string.format("v0.21.1 | %d energy buttons | %d radial-capable | %d radial / %d bar active", count, native, radial, bar))
     Say(string.format("%d rising / %d perimeter active",rising,perimeter))
     Say("source: " .. lastSource .. " | max energy used: " .. lastMaxEnergy .. " | mode: " .. DB.mode .. " | progress: " .. DB.progress)
     Say("actual progress: "..ProgressSummary())
@@ -1409,7 +1425,7 @@ local function DiagnosticReport()
         for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
     end
     local lines={
-        "Rogue Energy Sweep v0.21.0 diagnostic report",
+        "Rogue Energy Sweep v0.21.1 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
@@ -1426,6 +1442,7 @@ local function DiagnosticReport()
         "Ability Chains: "..(Chains and Chains.Status() or "module unavailable"),
         "Ready signals: "..Counts(readySources),
         "Actual progress: "..ProgressSummary(),
+        string.format("Countdown cast resets: %d confirmed | %d free skipped | %d unknown skipped | last: %s",castResetStats.confirmed,castResetStats.free,castResetStats.unknown,castResetStats.last),
         "Energy source: "..lastSource.." | max energy used: "..lastMaxEnergy,
         "Finisher gate: "..tostring(DB.finisherComboOnly).." | "..lastComboSource,
         "Cooldown gate: "..tostring(DB.hideCooldowns).." | "..lastCooldownSource,
@@ -2135,13 +2152,12 @@ events:SetScript("OnEvent", function(_, event, ...)
         local unit, _, spellID = ...
         if DB.enabled and DB.finisherComboOnly and not IsSecret(unit) and unit=="player" then RequestUpdate() end
         if DB.enabled and DB.progress=="countdown" and not IsSecret(unit) and unit=="player" then
-            local id=SafeNumber(spellID)
-            local cost, hasEnergy, readable=GetEnergyCost(id)
-            -- If spell identity/cost is restricted, reset on successful player
-            -- casts rather than guessing which spell was used. Known free casts do not reset.
-            if not id or not readable or (hasEnergy and cost>0) then
-                progressGeneration=progressGeneration+1; RequestUpdate()
-            end
+            local reset,reason=CountdownCastDecision(spellID)
+            castResetStats[reason]=castResetStats[reason]+1; castResetStats.last=reason
+            if reset then progressGeneration=progressGeneration+1 end
+            -- Refresh actual energy even on unknown/free casts; public drops
+            -- are detected independently, and protected snapshots stay intact.
+            RequestUpdate()
         end
     elseif event == "UNIT_MAXPOWER" or event == "UNIT_AURA" or event == "PLAYER_EQUIPMENT_CHANGED"
         or event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then RequestCosts()

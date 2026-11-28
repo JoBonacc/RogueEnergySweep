@@ -92,3 +92,5 @@ GCD-aware readiness (v0.20.2): supersedes the v0.20.1 visual-hold behavior. Only
 
 ## v0.21.0 planning
 Repeat pips on action buttons now default to additional casts (first full pip = second affordable cast). Switch in Ability planning > Consecutive casts or `/resweep chains total` / `/resweep chains additional`. Arsenal still counts total casts. Pip appearance adds inside/outside, alignment, repeat shape, size up to 24 px, spacing, outline, brightness, inactive opacity and expanded offset. Outside pips are not width-clamped; check adjacent action bars. GCD prediction is retired; actual energy is shown. The planning regen assumption is unchanged.
+
+Countdown (v0.21.1): free spells, including spells returning nil costs, no longer restart the timer. Cast-based protected snapshots reset only for confirmed positive energy costs. If a genuine spend's spell ID or cost is protected, the snapshot is retained rather than guessing; public energy drops still reset. See countdown cast reset diagnostics.
