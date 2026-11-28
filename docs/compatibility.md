@@ -72,3 +72,7 @@ Only after all relevant checks pass, record build, addon version, date, client c
 
 ## v0.21.1
 - [ ] In countdown mode, spend energy then Pick Pocket before the timer completes; confirm no reset. Repeat with other free spells and genuine energy spenders both in and out of restricted combat. Check reset/skip counters and all four renderers.
+
+## v0.23.1 resource and talent verification
+- User live test (November 27, 2026): C_Secrets.GetPowerTypeSecrecy(4) = 0; C_Secrets.ShouldUnitPowerBeSecret("player",4) = false; issecretvalue(GetComboPoints("player","target")) = false, including in combat with combo points on the target. Client build not supplied for this test. Combo points are readable in the tested conditions; no new estimate or combat restriction added.
+- Forever generated API docs: [SpecializationInfo](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/SpecializationInfoDocumentation.lua), [SharedTraits](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/SharedTraitsDocumentation.lua), [SecretPredicateAPI](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/SecretPredicateAPIDocumentation.lua). Talent rank now uses active combat trait config and activeRank; re-read on talent/config changes. No assumed rank when unresolved. Live talent resolution remains to be verified.

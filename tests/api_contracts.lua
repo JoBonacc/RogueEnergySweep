@@ -863,8 +863,12 @@ end)()
     local ns={}; local rank,cp=3,5
     local names={[1776]="Gouge",[53]="Backstab",[1766]="Kick",[408]="Kidney Shot",[8643]="Kidney Shot",[1833]="Cheap Shot",[2094]="Blind",[13741]="Improved Gouge"}
     local e=setmetatable({C_Spell={GetSpellInfo=function(id) return {name=names[id]} end},
-        GetNumTalentTabs=function() return 1 end,GetNumTalents=function() return 1 end,
-        GetTalentInfo=function() return "Improved Gouge",nil,1,1,rank,3 end,
+        C_SpecializationInfo={GetActiveSpecGroup=function() return 1 end,GetCombatConfigIDForSpecGroup=function(group) assert(group==1); return 42 end},
+        C_Traits={GetConfigInfo=function(config) assert(config==42); return {treeIDs={11}} end,
+            GetTreeNodes=function(tree) assert(tree==11); return {12} end,
+            GetNodeInfo=function(config,node) assert(config==42 and node==12); return {entryIDs={13},activeRank=rank,currentRank=3,activeEntry={entryID=13}} end,
+            GetEntryInfo=function(config,entry) assert(config==42 and entry==13); return {definitionID=14} end,
+            GetDefinitionInfo=function(def) assert(def==14); return {spellID=13741} end},
         GetComboPoints=function(unit,target) assert(unit=="player" and target=="target"); return cp end},{__index=_G})
     assert(loadfile("addon/RogueEnergySweep/Chains.lua","t",e))("RogueEnergySweep",ns)
     local C=ns.Chains
@@ -877,13 +881,15 @@ end)()
     mode,window=C.OptionsTiming(1776,1766); assert(mode=="gcd" and window==1)
     near(select(2,C.OptionsTiming(408,53)),4.5); near(select(2,C.OptionsTiming(8643,53)),5.5)
     near(select(2,C.OptionsTiming(1833,53)),3.5); near(select(2,C.OptionsTiming(2094,53)),9.5)
-    rank=0; cp=1; C.Sync(r,100); near(select(2,C.OptionsTiming(1776,53)),3.5); assert(select(2,C.OptionsTiming(408,53))==nil)
-    rank=secret; cp=secret; C.Sync(r,100); near(select(2,C.OptionsTiming(1776,53)),3.5); assert(select(2,C.OptionsTiming(8643,53))==nil)
+    rank=0; cp=1; C.Sync(r,100); near(select(2,C.OptionsTiming(1776,53)),5); C.InvalidateTalents(); C.Sync(r,100); near(select(2,C.OptionsTiming(1776,53)),3.5); assert(select(2,C.OptionsTiming(408,53))==nil)
+    rank=secret; cp=secret; C.InvalidateTalents(); C.Sync(r,100); assert(select(2,C.OptionsTiming(1776,53))==nil); assert(select(2,C.OptionsTiming(8643,53))==nil)
+    rank=0; cp=5; C.InvalidateTalents(); C.Sync(r,100); near(select(2,C.OptionsTiming(1776,53)),3.5)
     assert(C.SetTiming(1776,53,"custom",3)); near(select(2,C.OptionsTiming(1776,53)),3)
     assert(C.SetTiming(1776,53,"gcd")); near(select(2,C.OptionsTiming(1776,53)),1)
     assert(C.SetTiming(1776,53,"control")); near(select(2,C.OptionsTiming(1776,53)),3.5)
     d.chains.controlMargin=0; near(select(2,C.OptionsTiming(1776,53)),3.999)
     assert(C.SetLocal(1776,53,"off")); assert(C.SetLocal(1776,53,"opportunity")); assert(C.OptionsTiming(1776,53)=="control")
     d.chains.rules[1776]={follow={53},window=4}; assert(C.OptionsTiming(1776,53)=="custom"); near(select(2,C.OptionsTiming(1776,53)),4)
-    print("PASS: per-relationship automatic timing, talent ranks, target combo points, protected values, safety margin and migration")
+    assert(src:find("TRAIT_CONFIG_UPDATED",1,true) and src:find("Chains.InvalidateTalents()",1,true))
+    print("PASS: per-relationship automatic timing, active trait ranks, cache invalidation, target combo points, protected values, safety margin and migration")
 end)()

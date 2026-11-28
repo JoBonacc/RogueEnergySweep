@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.23.0 (WoW Forever)
+-- Rogue Energy Sweep 0.23.1 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...
@@ -2123,7 +2123,7 @@ if Options then Options.Configure({
 local events = CreateFrame("Frame")
 for _, event in ipairs({"ADDON_LOADED","PLAYER_ENTERING_WORLD","PLAYER_REGEN_DISABLED","PLAYER_REGEN_ENABLED",
     "ACTIONBAR_SLOT_CHANGED","ACTIONBAR_PAGE_CHANGED","SPELLS_CHANGED","PLAYER_EQUIPMENT_CHANGED",
-    "PLAYER_TALENT_UPDATE","ACTIVE_TALENT_GROUP_CHANGED","UPDATE_SHAPESHIFT_FORM","UPDATE_STEALTH","PLAYER_TARGET_CHANGED","COMBO_TARGET_CHANGED","UNIT_COMBO_POINTS","SPELL_UPDATE_COOLDOWN","ACTIONBAR_UPDATE_COOLDOWN","SPELL_UPDATE_CHARGES","SPELL_UPDATE_USABLE"}) do
+    "PLAYER_TALENT_UPDATE","ACTIVE_TALENT_GROUP_CHANGED","TRAIT_CONFIG_UPDATED","TRAIT_CONFIG_LIST_UPDATED","ACTIVE_COMBAT_CONFIG_CHANGED","UPDATE_SHAPESHIFT_FORM","UPDATE_STEALTH","PLAYER_TARGET_CHANGED","COMBO_TARGET_CHANGED","UNIT_COMBO_POINTS","SPELL_UPDATE_COOLDOWN","ACTIONBAR_UPDATE_COOLDOWN","SPELL_UPDATE_CHARGES","SPELL_UPDATE_USABLE"}) do
     pcall(events.RegisterEvent, events, event)
 end
 for _, event in ipairs({"UNIT_POWER_FREQUENT","UNIT_POWER_UPDATE","UNIT_MAXPOWER","UNIT_AURA","UNIT_SPELLCAST_SUCCEEDED"}) do
@@ -2159,8 +2159,11 @@ events:SetScript("OnEvent", function(_, event, ...)
             -- are detected independently, and protected snapshots stay intact.
             RequestUpdate()
         end
-    elseif event == "UNIT_MAXPOWER" or event == "UNIT_AURA" or event == "PLAYER_EQUIPMENT_CHANGED"
-        or event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then RequestCosts()
+    elseif event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "TRAIT_CONFIG_UPDATED"
+        or event == "TRAIT_CONFIG_LIST_UPDATED" or event == "ACTIVE_COMBAT_CONFIG_CHANGED" then
+        if Chains then Chains.InvalidateTalents() end
+        RequestCosts()
+    elseif event == "UNIT_MAXPOWER" or event == "UNIT_AURA" or event == "PLAYER_EQUIPMENT_CHANGED" then RequestCosts()
     elseif event == "PLAYER_REGEN_DISABLED" then demo = false; RefreshCosts(); Update()
     elseif event == "PLAYER_REGEN_ENABLED" then
         if rescanPending then ScanButtons() else RefreshCosts() end

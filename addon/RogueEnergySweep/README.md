@@ -100,3 +100,6 @@ In Ability planning > Configure repeat pips and follow-ups, select a source such
 
 ## v0.23.0 automatic follow-up timing
 Each local relationship has Next GCD (1 second), Control window (known Gouge, Cheap Shot, Kidney Shot, Blind durations minus shared safety margin, default 0.5 seconds), or Custom. Supported control sources default to Control window except Kick targets. Longer v0.22 explicit windows are preserved as Custom. Gouge reads public Improved Gouge talent rank, or uses a labeled conservative base duration if unavailable. Kidney uses public target combo points; no prediction when protected or the window ends before GCD. Global rules/repeats unchanged. Assumed regeneration is not live; no prediction of DR, immunity, damage breaks, or positioning.
+
+## v0.23.1
+Improved Gouge reads active combat trait configuration and active rank (not legacy talent tabs). If lookup fails, the control prediction is unavailable rather than assuming zero talent ranks. Combo-point API confirmed readable by user in ordinary combat.

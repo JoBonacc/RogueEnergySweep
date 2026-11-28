@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.23.1
+- Fix Improved Gouge lookup using Forever active combat trait config and active rank; cache and refresh on talent/config changes. No guessed zero rank if lookup fails.
+- Record live combo-point secrecy verification; continue using actual target combo points in combat.
+
 ## v0.23.0
 - Per-relationship automatic timing with Next GCD, Control window and Custom; 0.5s configurable safety margin. Known Gouge, Cheap Shot, Kidney Shot and Blind durations, talent rank and public target combo points where available. GCD included in control duration. Preserve explicit longer v0.22 windows.
 - Refresh timing after talent and combo changes; hide unavailable control predictions instead of inventing protected combo values. Existing global reservations, repeat counts and energy sweep unchanged.

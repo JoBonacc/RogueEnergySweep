@@ -6,6 +6,7 @@ local catalog,ordered,tracked,curves,samples={},{},{},{},{}
 local panel,refresh,signature
 local errorText="none"
 local gougeRank,comboPoints,hasKidney=nil,nil,false
+local talentDirty=true
 local WHITE="Interface\\Buttons\\WHITE8X8"
 local CIRCLE="Interface\\AddOns\\RogueEnergySweep\\ChainCircle"
 local DIAMOND="Interface\\AddOns\\RogueEnergySweep\\ChainDiamond"
@@ -43,7 +44,7 @@ local function Normalize(c)
     return c
 end
 function C.Configure(a) api=a end
-function C.Init(d) db=d; d.chains=Normalize(d.chains); cfg=d.chains; signature=nil; catalog={}; ordered={}; gougeRank=nil; comboPoints=nil; hasKidney=false end
+function C.Init(d) db=d; d.chains=Normalize(d.chains); cfg=d.chains; signature=nil; catalog={}; ordered={}; gougeRank=nil; comboPoints=nil; hasKidney=false; talentDirty=true end
 local function RepeatThreshold(cost,n,regen)
     return cost+(n-1)*math.max(0,cost-regen)
 end
@@ -80,37 +81,60 @@ local function PublicCall(fn,...)
     local ok,v=pcall(fn,...)
     if ok and not api.secret(v) then return v end
 end
+-- Forever uses a combat trait config, not the legacy talent-tab API.
+-- Match the talent definition's spell ID or localized name, then read
+-- the actual active rank, never staged points or an assumed zero.
 local function ReadGougeRank()
+    if not C_Traits or not C_SpecializationInfo then return nil end
+    local group=api.safe(PublicCall(C_SpecializationInfo.GetActiveSpecGroup))
+    local config=group and api.safe(PublicCall(C_SpecializationInfo.GetCombatConfigIDForSpecGroup,group))
+    if not config then return nil end
+    local info=PublicCall(C_Traits.GetConfigInfo,config)
+    if type(info)~="table" or type(info.treeIDs)~="table" then return nil end
     local name=SpellName(13741)
-    if name=="Spell 13741" then name="Improved Gouge" end
-    local tabs=api.safe(PublicCall(GetNumTalentTabs))
-    if not tabs or tabs<1 or tabs>10 or type(GetTalentInfo)~="function" then return nil end
-    for tab=1,tabs do
-        local count=api.safe(PublicCall(GetNumTalents,tab))
-        if count and count>=0 and count<=100 then
-            for i=1,count do
-                local ok,n,_,_,_,rank=pcall(GetTalentInfo,tab,i)
-                if ok and not api.secret(n) and n==name then
-                    rank=api.safe(rank)
-                    if rank and rank>=0 and rank<=3 and rank==math.floor(rank) then return rank end
-                    return nil
+    for _,tree in ipairs(info.treeIDs) do
+        local nodes=PublicCall(C_Traits.GetTreeNodes,tree)
+        if type(nodes)=="table" then
+            for _,nodeID in ipairs(nodes) do
+                local node=PublicCall(C_Traits.GetNodeInfo,config,nodeID)
+                if type(node)=="table" and type(node.entryIDs)=="table" then
+                    for _,entryID in ipairs(node.entryIDs) do
+                        local entry=PublicCall(C_Traits.GetEntryInfo,config,entryID)
+                        local def=type(entry)=="table" and entry.definitionID and PublicCall(C_Traits.GetDefinitionInfo,entry.definitionID)
+                        if type(def)=="table" and (def.spellID==13741 or (def.spellID and name~="Spell 13741" and SpellName(def.spellID)==name) or (name~="Spell 13741" and def.overrideName==name)) then
+                            local rank=api.safe(node.activeRank)
+                            if rank and rank>=0 and rank<=3 and rank==math.floor(rank) then
+                                if rank==0 then return 0 end
+                                if type(node.activeEntry)=="table" then
+                                    if node.activeEntry.entryID~=entryID then return 0 end
+                                    return rank
+                                end
+                                if #node.entryIDs==1 then return rank end
+                            end
+                            return nil
+                        end
+                    end
                 end
             end
         end
     end
 end
+function C.InvalidateTalents() talentDirty=true end
 local function ReadCombo()
     local n=api.safe(PublicCall(GetComboPoints,"player","target"))
     if n and n>=0 and n<=5 and n==math.floor(n) then return n end
 end
 local function ControlDuration(id)
     local kind=ControlKind(id)
-    if kind=="gouge" then return 4+(gougeRank or 0)*.5,gougeRank==nil and "base duration; talent rank unavailable" or "talent-adjusted" end
+    if kind=="gouge" then
+        if gougeRank==nil then return nil,"Improved Gouge rank not resolved from active trait config" end
+        return 4+gougeRank*.5,"Improved Gouge "..gougeRank.."/3"
+    end
     if kind=="cheap" then return 4,"base duration" end
     if kind=="blind" then return 10,"base duration" end
     if kind=="kidney" then
         if comboPoints and comboPoints>0 then return comboPoints+(id==8643 and 1 or 0),"target combo points" end
-        return nil,"target combo points unavailable or zero"
+        return nil,comboPoints==0 and "no target combo points" or "target combo-point API unavailable"
     end
     return nil,"no supported control duration"
 end
@@ -425,7 +449,8 @@ function C.Sync(records,max)
     Remember(records); maxEnergy=max
     hasKidney=false; local hasGouge=false
     for _,e in ipairs(ordered) do local k=ControlKind(e.id); if k=="kidney" then hasKidney=true elseif k=="gouge" then hasGouge=true end end
-    gougeRank=hasGouge and ReadGougeRank() or nil; comboPoints=hasKidney and ReadCombo() or nil
+    if hasGouge and talentDirty then gougeRank=ReadGougeRank(); talentDirty=false end
+    comboPoints=hasKidney and ReadCombo() or nil
     local bits={tostring(cfg.enabled),tostring(cfg.repeatEnabled),cfg.repeatCount,cfg.placement,cfg.align,cfg.repeatShape,cfg.outline,cfg.brightness,cfg.inactiveOpacity,cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),tostring(cfg.pulseWarnings),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max,cfg.controlMargin,tostring(gougeRank),tostring(comboPoints)}
     local f=cfg.followStyle
     for _,v in ipairs({tostring(cfg.separateFollow),f.size,f.spacing,f.placement,f.align,f.shape,f.outline,f.brightness,f.inactiveOpacity,f.offset}) do bits[#bits+1]=v end
