@@ -5,6 +5,7 @@ local api,db,cfg,maxEnergy= nil,nil,nil,100
 local catalog,ordered,tracked,curves,samples={},{},{},{},{}
 local panel,refresh,signature
 local errorText="none"
+local gougeRank,comboPoints,hasKidney=nil,nil,false
 local WHITE="Interface\\Buttons\\WHITE8X8"
 local CIRCLE="Interface\\AddOns\\RogueEnergySweep\\ChainCircle"
 local DIAMOND="Interface\\AddOns\\RogueEnergySweep\\ChainDiamond"
@@ -31,6 +32,7 @@ local function Normalize(c)
     f.outline=number(f.outline,c.outline,0,3); f.brightness=number(f.brightness,c.brightness,0,1)
     f.inactiveOpacity=number(f.inactiveOpacity,c.inactiveOpacity,0,1); f.offset=number(f.offset,c.offset,-24,24)
     c.followStyle=f
+    c.controlMargin=number(c.controlMargin,.5,0,2)
     c.maxPips=math.floor(number(c.maxPips,4,1,6))
     c.rules=type(c.rules)=="table" and c.rules or {}; c.colors=type(c.colors)=="table" and c.colors or {}
     c.globalFollow=type(c.globalFollow)=="table" and c.globalFollow or {}
@@ -41,7 +43,7 @@ local function Normalize(c)
     return c
 end
 function C.Configure(a) api=a end
-function C.Init(d) db=d; d.chains=Normalize(d.chains); cfg=d.chains; signature=nil; catalog={}; ordered={} end
+function C.Init(d) db=d; d.chains=Normalize(d.chains); cfg=d.chains; signature=nil; catalog={}; ordered={}; gougeRank=nil; comboPoints=nil; hasKidney=false end
 local function RepeatThreshold(cost,n,regen)
     return cost+(n-1)*math.max(0,cost-regen)
 end
@@ -63,6 +65,74 @@ local function SpellName(id)
         if ok and not api.secret(info) and type(info)=="table" and not api.secret(info.name) and type(info.name)=="string" then return info.name end
     end
     return "Spell "..id
+end
+-- Spell IDs and base durations: Forever spellbook (Gouge, Cheap Shot,
+-- Blind, Kidney Shot ranks 1/2). Use public talent/target combo APIs only.
+local gouges={[1776]=true,[1777]=true,[8629]=true,[11285]=true,[11286]=true}
+local function ControlKind(id)
+    if gouges[id] then return "gouge" end
+    if id==1833 then return "cheap" end
+    if id==2094 then return "blind" end
+    if id==408 or id==8643 then return "kidney" end
+end
+local function PublicCall(fn,...)
+    if type(fn)~="function" then return nil end
+    local ok,v=pcall(fn,...)
+    if ok and not api.secret(v) then return v end
+end
+local function ReadGougeRank()
+    local name=SpellName(13741)
+    if name=="Spell 13741" then name="Improved Gouge" end
+    local tabs=api.safe(PublicCall(GetNumTalentTabs))
+    if not tabs or tabs<1 or tabs>10 or type(GetTalentInfo)~="function" then return nil end
+    for tab=1,tabs do
+        local count=api.safe(PublicCall(GetNumTalents,tab))
+        if count and count>=0 and count<=100 then
+            for i=1,count do
+                local ok,n,_,_,_,rank=pcall(GetTalentInfo,tab,i)
+                if ok and not api.secret(n) and n==name then
+                    rank=api.safe(rank)
+                    if rank and rank>=0 and rank<=3 and rank==math.floor(rank) then return rank end
+                    return nil
+                end
+            end
+        end
+    end
+end
+local function ReadCombo()
+    local n=api.safe(PublicCall(GetComboPoints,"player","target"))
+    if n and n>=0 and n<=5 and n==math.floor(n) then return n end
+end
+local function ControlDuration(id)
+    local kind=ControlKind(id)
+    if kind=="gouge" then return 4+(gougeRank or 0)*.5,gougeRank==nil and "base duration; talent rank unavailable" or "talent-adjusted" end
+    if kind=="cheap" then return 4,"base duration" end
+    if kind=="blind" then return 10,"base duration" end
+    if kind=="kidney" then
+        if comboPoints and comboPoints>0 then return comboPoints+(id==8643 and 1 or 0),"target combo points" end
+        return nil,"target combo points unavailable or zero"
+    end
+    return nil,"no supported control duration"
+end
+local function Timing(rule,source,target)
+    local t=rule.timing and rule.timing[target.id]
+    local mode,seconds
+    if type(t)=="table" then mode=t.mode; seconds=t.seconds end
+    if mode~="gcd" and mode~="control" and mode~="custom" then
+        -- Preserve explicit longer windows from v0.22, but replace its
+        -- default one-second window with ability-aware defaults.
+        if rule.window and rule.window>1 then mode="custom"; seconds=rule.window
+        else mode=ControlKind(source.id) and target.id~=1766 and target.name~="Kick" and "control" or "gcd" end
+    end
+    if mode=="custom" then return mode,number(seconds,1,1,10),"manual" end
+    if mode=="gcd" then return mode,1,"one-second Rogue GCD" end
+    local duration,why=ControlDuration(source.id)
+    local window=duration and duration-cfg.controlMargin
+    if not window or window<1 or window>=duration then
+        -- With zero margin, require a cast strictly before expiration.
+        if window and window==duration and duration>1 then window=duration-.001 else return mode,nil,why.."; no usable post-GCD window" end
+    end
+    return mode,window,why
 end
 local function Remember(records)
     for _,e in pairs(catalog) do e.current=false end
@@ -93,11 +163,12 @@ end
 local function Rule(e)
     local r=cfg.rules[e.id]
     if type(r)~="table" then return DefaultRule(e) end
-    return {repeatPips=r.repeatPips==true,follow=type(r.follow)=="table" and r.follow or {},conditions=type(r.conditions)=="table" and r.conditions or {},window=number(r.window,1,1,10)}
+    return {repeatPips=r.repeatPips==true,follow=type(r.follow)=="table" and r.follow or {},conditions=type(r.conditions)=="table" and r.conditions or {},timing=type(r.timing)=="table" and r.timing or {},window=number(r.window,1,1,10)}
 end
 local function EditRule(e)
-    local r=Rule(e); local copy={repeatPips=r.repeatPips,follow={},conditions={},window=r.window or 1}
+    local r=Rule(e); local copy={repeatPips=r.repeatPips,follow={},conditions={},timing={},window=r.window or 1}
     for _,id in ipairs(r.follow) do copy.follow[#copy.follow+1]=id; if r.conditions then copy.conditions[id]=r.conditions[id] end end
+    for id,t in pairs(r.timing or {}) do copy.timing[id]=t end
     cfg.rules[e.id]=copy; return copy
 end
 -- Settings API: preserve existing saved rules and template semantics.
@@ -106,10 +177,21 @@ function C.OptionsRule(id) local e=catalog[id]; return e and Rule(e) or {repeatP
 function C.OptionsColor(id) return GetColor(id) end
 function C.OptionsPalette() return palette end
 function C.SetRepeat(id,value) local e=catalog[id]; if e then EditRule(e).repeatPips=value==true; signature=nil; return true end end
-function C.SetWindow(id,seconds)
-    local e=catalog[id]; if not e then return false end
-    EditRule(e).window=number(seconds,1,1,10); signature=nil; return true
+function C.OptionsTiming(id,target)
+    local e,n=catalog[id],catalog[target]
+    if not e or not n then return "gcd",1,"one-second Rogue GCD",false end
+    local mode,window,why=Timing(Rule(e),e,n)
+    return mode,window,why,ControlKind(id)~=nil
 end
+function C.SetTiming(id,target,mode,seconds)
+    local e,n=catalog[id],catalog[target]
+    if not e or not n or id==target or cfg.globalFollow[target] then return false end
+    if mode~="gcd" and mode~="custom" and (mode~="control" or not ControlKind(id)) then return false end
+    local r=EditRule(e)
+    r.timing[target]={mode=mode,seconds=number(seconds,1,1,10)}
+    signature=nil; return true
+end
+function C.ControlDuration(id) return ControlDuration(id) end
 function C.SetColor(id,index) if catalog[id] and palette[index] then cfg.colors[id]=index; signature=nil; return true end end
 function C.SetLocal(id,target,condition)
     local e=catalog[id]; if not e or id==target or not catalog[target] or cfg.globalFollow[target] then return false end
@@ -117,7 +199,7 @@ function C.SetLocal(id,target,condition)
     for i,v in ipairs(old.follow) do if v==target then found=i; break end end
     if not found and condition~="off" and #old.follow>=3 then return false end
     local r=EditRule(e)
-    if condition=="off" then if found then table.remove(r.follow,found) end; r.conditions[target]=nil
+    if condition=="off" then if found then table.remove(r.follow,found) end; r.conditions[target]=nil; r.timing[target]=nil
     elseif condition=="opportunity" or condition=="warning" then if not found then r.follow[#r.follow+1]=target end; r.conditions[target]=condition
     else return false end
     signature=nil; return true
@@ -239,23 +321,31 @@ function C.ArsenalSpec(entry,maximum,allRepeats)
 end
 local function FollowDefinitions(entry,rule)
     local defs,seen={},{}
-    local function Add(id,condition,window)
+    local function Add(id,condition,window,control)
         local e=catalog[id]
         if #defs>=3 or not e or not e.current or id==entry.id or seen[id] or api.excluded({spellID=id,category=e.category}) then return end
-        local threshold=FollowThreshold(entry.cost,e.cost,cfg.regen,window)
+        local threshold=window and FollowThreshold(entry.cost,e.cost,cfg.regen,window) or maxEnergy+1
         if e.cost>maxEnergy then threshold=math.max(threshold,maxEnergy+1) end
         local warning=condition=="warning"
-        if (warning and threshold>entry.cost and entry.cost<=maxEnergy) or (not warning and threshold<=maxEnergy) then
-            defs[#defs+1]={lo=warning and entry.cost or 0,hi=threshold,partial=false,kind="follow",warning=warning,id=id,n=#defs+1}
+        local possible=window~=nil and ((warning and threshold>entry.cost and entry.cost<=maxEnergy) or (not warning and threshold<=maxEnergy))
+        -- Reserve a hidden native widget even when a dynamic control window
+        -- is unavailable so combo changes in combat never need new frames.
+        if possible or control then
+            defs[#defs+1]={lo=warning and entry.cost or 0,hi=threshold,partial=false,kind="follow",warning=warning,id=id,n=#defs+1,hidden=not possible}
             seen[id]=true
         end
     end
     -- Global warnings first, then global opportunities, then local rules.
     -- A global relationship overrides a local one for the same target.
     for _,condition in ipairs({"warning","opportunity"}) do
-        for _,e in ipairs(ordered) do if cfg.globalFollow[e.id]==condition then Add(e.id,condition) end end
+        for _,e in ipairs(ordered) do if cfg.globalFollow[e.id]==condition then Add(e.id,condition,1) end end
     end
-    for _,id in ipairs(rule.follow) do if not cfg.globalFollow[id] then Add(id,rule.conditions and rule.conditions[id] or "opportunity",rule.window) end end
+    for _,id in ipairs(rule.follow) do
+        if not cfg.globalFollow[id] and catalog[id] then
+            local mode,window=Timing(rule,entry,catalog[id])
+            Add(id,rule.conditions and rule.conditions[id] or "opportunity",window,mode=="control")
+        end
+    end
     return defs
 end
 local function Setup(record,entry)
@@ -315,7 +405,7 @@ local function Setup(record,entry)
         p.bar:SetStatusBarTexture(texture)
         local color=GetColor(d.id); local light=style.brightness
         p.bar:SetStatusBarColor(color[1]+(1-color[1])*light,color[2]+(1-color[2])*light,color[3]+(1-color[3])*light,1)
-        p.warning=d.warning==true; p.hideInactive=cfg.hideInactive or style.inactiveOpacity==0
+        p.disabled=d.hidden==true; p.warning=d.warning==true; p.hideInactive=cfg.hideInactive or style.inactiveOpacity==0
         if p.warning then
             p.curve,p.key=WarningCurve(d.lo,d.hi)
             p.alphaCurve,p.alphaKey=p.curve,p.key
@@ -326,20 +416,23 @@ local function Setup(record,entry)
             p.alphaCurve,p.alphaKey=Curve(0,d.partial and math.min(d.hi,d.lo+.5) or d.hi,false)
             p.bar:SetValue(0); p.frame:SetAlpha(1)
         end
-        p.frame:Show()
+        if p.disabled then p.frame:Hide() else p.frame:Show() end
     end
     for i=r.count+1,#r.pips do r.pips[i].frame:Hide() end
 end
 function C.Sync(records,max)
     if not cfg or not api then return end
     Remember(records); maxEnergy=max
-    local bits={tostring(cfg.enabled),tostring(cfg.repeatEnabled),cfg.repeatCount,cfg.placement,cfg.align,cfg.repeatShape,cfg.outline,cfg.brightness,cfg.inactiveOpacity,cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),tostring(cfg.pulseWarnings),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max}
+    hasKidney=false; local hasGouge=false
+    for _,e in ipairs(ordered) do local k=ControlKind(e.id); if k=="kidney" then hasKidney=true elseif k=="gouge" then hasGouge=true end end
+    gougeRank=hasGouge and ReadGougeRank() or nil; comboPoints=hasKidney and ReadCombo() or nil
+    local bits={tostring(cfg.enabled),tostring(cfg.repeatEnabled),cfg.repeatCount,cfg.placement,cfg.align,cfg.repeatShape,cfg.outline,cfg.brightness,cfg.inactiveOpacity,cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),tostring(cfg.pulseWarnings),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max,cfg.controlMargin,tostring(gougeRank),tostring(comboPoints)}
     local f=cfg.followStyle
     for _,v in ipairs({tostring(cfg.separateFollow),f.size,f.spacing,f.placement,f.align,f.shape,f.outline,f.brightness,f.inactiveOpacity,f.offset}) do bits[#bits+1]=v end
     for _,e in ipairs(ordered) do
         local r=Rule(e); bits[#bits+1]=e.id..":"..e.cost..":"..tostring(r.repeatPips)..":"..select(2,GetColor(e.id))
         bits[#bits+1]="global:"..tostring(cfg.globalFollow[e.id])..":window:"..tostring(r.window or 1)
-        for _,id in ipairs(r.follow) do bits[#bits+1]=tostring(id)..":"..tostring(r.conditions and r.conditions[id]) end
+        for _,id in ipairs(r.follow) do local t=r.timing and r.timing[id]; bits[#bits+1]=tostring(id)..":"..tostring(r.conditions and r.conditions[id])..":"..tostring(t and t.mode)..":"..tostring(t and t.seconds) end
     end
     for _,r in ipairs(records) do bits[#bits+1]=tostring(r)..":"..tostring(r.spellID)..":"..tostring(api.excluded(r)) end
     local key=table.concat(bits,"|")
@@ -358,6 +451,9 @@ function C.Sync(records,max)
     end
     if refresh and panel:IsShown() then refresh() end
 end
+function C.RefreshTiming(records,max)
+    if cfg and cfg.enabled and hasKidney and ReadCombo()~=comboPoints then C.Sync(records,max) end
+end
 function C.Begin() samples={} end
 local function Sample(curve,key)
     if not curve then return nil,false end
@@ -370,7 +466,8 @@ function C.Update(record,eligible)
     if not cfg.enabled or not eligible or not r or r.count==0 then Clear(record); return end
     local ok,err=pcall(function()
         for i=1,r.count do
-            local p=r.pips[i]; local value,valid=Sample(p.curve,p.key)
+            local p=r.pips[i]; local value,valid
+            if not p.disabled then value,valid=Sample(p.curve,p.key) end
             if valid then
                 if p.warning then
                     -- Native alpha gates the complete warning glyph. The pulse
@@ -485,7 +582,7 @@ function C.Open()
                 for j,id in ipairs(r.follow) do if id==row.id then found=j; break end end
                 if not found and #r.follow<3 then r.follow[#r.follow+1]=row.id; r.conditions[row.id]="opportunity"
                 elseif found and r.conditions[row.id]~="warning" then r.conditions[row.id]="warning"
-                elseif found then table.remove(r.follow,found); r.conditions[row.id]=nil end
+                elseif found then table.remove(r.follow,found); r.conditions[row.id]=nil; r.timing[row.id]=nil end
                 signature=nil; api.apply()
             end)
             row.b=b
@@ -495,7 +592,7 @@ function C.Open()
         Button("Prev targets",16,-446,105,function() targetPage=targetPage-1; refresh() end)
         Button("Next targets",402,-446,105,function() targetPage=targetPage+1; refresh() end)
         Text("+ = affordable afterward; ! = cannot afford afterward (energy only).",16,-480)
-        Text("Uses assumed GCD regeneration; ignores target cooldowns and combo changes.",16,-500)
+        Text("Timing modes and safety margin are in the unified /resweep settings.",16,-500)
         Button("Done",418,-523,90,function() panel:Hide() end)
         refresh=function()
             syncing=true

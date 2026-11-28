@@ -688,8 +688,8 @@ assert(wbars[1].animation.plays==1)
 warnings.Update(wa,false); assert(not wbars[1].parent.parent.shown and wbars[1].animation.stops==1)
 assert(#Bars(wk)==0,"reserved ability itself must not get its own global warning")
 assert(warnings.SetLocal(4,2,"opportunity"))
-assert(warnings.SetWindow(4,4))
-assert(warnings.OptionsRule(4).window==4)
+assert(warnings.SetTiming(4,2,"custom",4))
+assert(select(2,warnings.OptionsTiming(4,2))==4)
 warningDB.chains.separateFollow=true; warningDB.chains.followStyle.shape="square"; warningDB.chains.followStyle.size=16
 warnings.Sync(wr,100); energyValue=55; warnings.Begin(); warnings.Update(wg,true)
 local gougeBars=Bars(wg)
@@ -699,7 +699,7 @@ assert(gougeBars[2].SetStatusBarTextureArgs[1]:find("WHITE8X8",1,true))
 energyValue=64; warnings.Begin(); warnings.Update(wg,true); near(gougeBars[2].SetValueArgs[1],0)
 energyValue=65; warnings.Begin(); warnings.Update(wg,true); near(gougeBars[2].SetValueArgs[1],1)
 near(gougeBars[1].parent.alpha,0)
-assert(warnings.SetLocal(4,2,"warning")); assert(warnings.OptionsRule(4).window==4)
+assert(warnings.SetLocal(4,2,"warning")); assert(select(2,warnings.OptionsTiming(4,2))==4)
 warnings.Sync(wr,100); energyValue=64; warnings.Begin(); warnings.Update(wg,true)
 near(Bars(wg)[2].parent.alpha,1)
 warningDB.chains.separateFollow=false
@@ -846,7 +846,7 @@ end)()
     local reset,reason=decision(123); assert(not reset and reason=="unknown")
     assert(src:find("if reset then progressGeneration=progressGeneration+1 end",1,true))
     -- Drive the actual protected countdown with the same decision contract.
-    local g={}; local samples=0
+    local g={public=false,generation=-1}; local samples=0
     local e=setmetatable({SafeNumber=function(v) if type(v)=="number" then return v end end,progressGeneration=0,MakeCurve=function() return {} end,Evaluate=function() samples=samples+1; return secret,true end},{__index=_G})
     local run=assert(load(section("local function Countdown","local function ResetProgress").."\nreturn Countdown","cast snapshot","t",e))()
     run(g,60,secret,secret); assert(samples==2)
@@ -857,4 +857,33 @@ end)()
     if decision(1752) then e.progressGeneration=e.progressGeneration+1 end
     run(g,60,secret,secret); assert(samples==4 and g.generation==1)
     print("PASS: free/nil-cost and protected cast decisions preserve countdown; confirmed energy cast resets")
+end)()
+
+;(function()
+    local ns={}; local rank,cp=3,5
+    local names={[1776]="Gouge",[53]="Backstab",[1766]="Kick",[408]="Kidney Shot",[8643]="Kidney Shot",[1833]="Cheap Shot",[2094]="Blind",[13741]="Improved Gouge"}
+    local e=setmetatable({C_Spell={GetSpellInfo=function(id) return {name=names[id]} end},
+        GetNumTalentTabs=function() return 1 end,GetNumTalents=function() return 1 end,
+        GetTalentInfo=function() return "Improved Gouge",nil,1,1,rank,3 end,
+        GetComboPoints=function(unit,target) assert(unit=="player" and target=="target"); return cp end},{__index=_G})
+    assert(loadfile("addon/RogueEnergySweep/Chains.lua","t",e))("RogueEnergySweep",ns)
+    local C=ns.Chains
+    C.Configure({safe=function(v) if type(v)=="number" then return v end end,secret=env.issecretvalue,excluded=function() return false end})
+    local d={chains={template="custom",rules={[1776]={follow={53,1766}},[408]={follow={53}}}}}
+    C.Init(d); local r={}
+    for _,id in ipairs({1776,53,1766,408,8643,1833,2094}) do r[#r+1]={spellID=id,cost=45,category="builder"} end
+    C.Sync(r,100)
+    local mode,window=C.OptionsTiming(1776,53); assert(mode=="control"); near(window,5)
+    mode,window=C.OptionsTiming(1776,1766); assert(mode=="gcd" and window==1)
+    near(select(2,C.OptionsTiming(408,53)),4.5); near(select(2,C.OptionsTiming(8643,53)),5.5)
+    near(select(2,C.OptionsTiming(1833,53)),3.5); near(select(2,C.OptionsTiming(2094,53)),9.5)
+    rank=0; cp=1; C.Sync(r,100); near(select(2,C.OptionsTiming(1776,53)),3.5); assert(select(2,C.OptionsTiming(408,53))==nil)
+    rank=secret; cp=secret; C.Sync(r,100); near(select(2,C.OptionsTiming(1776,53)),3.5); assert(select(2,C.OptionsTiming(8643,53))==nil)
+    assert(C.SetTiming(1776,53,"custom",3)); near(select(2,C.OptionsTiming(1776,53)),3)
+    assert(C.SetTiming(1776,53,"gcd")); near(select(2,C.OptionsTiming(1776,53)),1)
+    assert(C.SetTiming(1776,53,"control")); near(select(2,C.OptionsTiming(1776,53)),3.5)
+    d.chains.controlMargin=0; near(select(2,C.OptionsTiming(1776,53)),3.999)
+    assert(C.SetLocal(1776,53,"off")); assert(C.SetLocal(1776,53,"opportunity")); assert(C.OptionsTiming(1776,53)=="control")
+    d.chains.rules[1776]={follow={53},window=4}; assert(C.OptionsTiming(1776,53)=="custom"); near(select(2,C.OptionsTiming(1776,53)),4)
+    print("PASS: per-relationship automatic timing, talent ranks, target combo points, protected values, safety margin and migration")
 end)()

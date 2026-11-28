@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.23.0
+- Per-relationship automatic timing with Next GCD, Control window and Custom; 0.5s configurable safety margin. Known Gouge, Cheap Shot, Kidney Shot and Blind durations, talent rank and public target combo points where available. GCD included in control duration. Preserve explicit longer v0.22 windows.
+- Refresh timing after talent and combo changes; hide unavailable control predictions instead of inventing protected combo values. Existing global reservations, repeat counts and energy sweep unchanged.
+- Correct the earlier protected countdown regression test fixture.
+
 ## v0.22.0
 - Add per-source local follow-up timing windows, defaulting to one second. Longer windows scale the existing assumed energy/GCD; global reservations and repeat budgets remain unchanged.
 - Add opt-in independent follow-up pip shape, size, placement, alignment, spacing, outline, brightness, inactive opacity and offset. Preserve existing shared appearance and warning glyphs by default.

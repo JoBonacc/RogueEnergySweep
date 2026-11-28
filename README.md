@@ -57,3 +57,5 @@ Ability Chains now supports opportunity (+) and warning (!) follow-ups and globa
 **v0.21.0:** Action-bar planning defaults to additional casts, with total casts optional and expanded pip appearance controls. Arsenal stays total casts. Experimental live GCD prediction is retired.
 
 **v0.22.0:** Local follow-up rules can use a configurable 1–10 second assumed regeneration window (e.g. Gouge). Independent follow-up pip styling is optional. Live tick timing is not predicted; global reservations and repeat budgets are unchanged.
+
+**v0.23.0:** Per-relationship Next GCD / Control window / Custom timing, automatic known control durations, public talent/combo data and configurable safety margin. Live API verification pending.

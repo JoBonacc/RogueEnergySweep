@@ -420,9 +420,10 @@ local function Planning()
         Choices(opts,sourceID,function(v) sourceID=v end,2)
         local rule=C.OptionsRule(sourceID)
         Check("Show consecutive-use pips for "..source.name,rule.repeatPips,function(v) C.SetRepeat(sourceID,v) end)
-        Section("Follow-up timing","Local follow-ups use the assumed regeneration per second (one-second Rogue GCD). Global reservations and repeat pips still use one GCD.")
-        Slider("Follow-up window",rule.window or 1,1,10,.5,function(v) C.SetWindow(sourceID,v) end," sec")
-        Paragraph("Use 1 second for the next GCD. For Gouge, set the actual talented duration minus any safety margin. This is an energy budget, not a live tick or crowd-control timer.")
+        Section("Follow-up timing","Each relationship has its own timing. Control windows include the GCD, not an extra GCD. Global reservations and repeats remain one GCD.")
+        local duration,why=C.ControlDuration(sourceID)
+        if duration then Paragraph("Source control: "..duration.." sec ("..why..").") end
+        Slider("Control-window safety margin",c.controlMargin,0,2,.1,function(v) c.controlMargin=v end," sec")
         Section("What can I do afterward?","Show + lights up when affordable. Warn ! lights up when the source is affordable but the target is not. Off hides the relationship.")
         local chosen={}; for _,id in ipairs(rule.follow) do chosen[id]=true end
         for _,e in ipairs(entries) do
@@ -432,6 +433,17 @@ local function Planning()
                 Text(e.name.." ("..e.cost..")"..(global and "  [global]" or ""),0,y+5,W-116,WHITE)
                 Button(ModeLabel(mode),W-110,y,110,function() Commit(function() if not C.SetLocal(sourceID,target,Cycle(mode)) then api.say("At most three local follow-ups per source.") end end,true) end,false,global~=nil)
                 y=y+30
+                if not global and chosen[target] then
+                    local timing,window,reason,supported=C.OptionsTiming(sourceID,target)
+                    local options={{"gcd","Next GCD"},{"control","Control window"},{"custom","Custom"}}
+                    if not supported then options={{"gcd","Next GCD"},{"custom","Custom"}} end
+                    Choices(options,timing,function(v) C.SetTiming(sourceID,target,v,window or 1) end,#options)
+                    if timing=="custom" then
+                        Slider("Custom window",window or 1,1,10,.5,function(v) C.SetTiming(sourceID,target,"custom",v) end," sec")
+                    elseif timing=="control" then
+                        Paragraph(window and string.format("Budget: %.2f sec (%s).",window,reason) or "Unavailable: "..reason..". No prediction is shown.")
+                    end
+                end
             end
         end
         return

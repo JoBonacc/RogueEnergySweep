@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.22.0 (WoW Forever)
+-- Rogue Energy Sweep 0.23.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...
@@ -947,7 +947,7 @@ local function RefreshCosts()
         if entry.cost ~= record.cost then record.cost = entry.cost; changed = true end
     end
     if Tracker and Tracker.Sync(records,lastMaxEnergy) then changed=true end
-    if changed then RebuildGroups() end
+    if changed then RebuildGroups() elseif Chains then Chains.Sync(records,lastMaxEnergy) end
 end
 
 local function ErrorNote(value)
@@ -1140,7 +1140,7 @@ local function UpdateCore()
     updatePending = false
     if not DB or not DB.enabled or (DB.combatOnly and not InCombatLockdown() and not demo) then ClearAll(); if DB and DB.progress=="countdown" then ResetProgress() end; if refreshLiveStatus then refreshLiveStatus() end; return end
     local trackerActive=Tracker and Tracker.Begin(demo)
-    if Chains then Chains.Begin() end
+    if Chains then Chains.RefreshTiming(records,lastMaxEnergy); Chains.Begin() end
     local publicEnergy,triedPublic = nil,false
     local comboAlpha=1
     local gateEnabled=DB.finisherComboOnly and not demo
@@ -2144,10 +2144,10 @@ events:SetScript("OnEvent", function(_, event, ...)
     elseif event=="SPELL_UPDATE_COOLDOWN" or event=="ACTIONBAR_UPDATE_COOLDOWN" or event=="SPELL_UPDATE_CHARGES" then
         if DB.enabled and DB.hideCooldowns then RequestUpdate() end
     elseif event=="PLAYER_TARGET_CHANGED" or event=="COMBO_TARGET_CHANGED" or event=="UNIT_COMBO_POINTS" then
-        if DB.enabled and DB.finisherComboOnly then RequestUpdate() end
+        if DB.enabled and (DB.finisherComboOnly or (DB.chains and DB.chains.enabled)) then RequestUpdate() end
     elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_POWER_UPDATE" then
         local unit, power = ...
-        if DB.enabled and not IsSecret(unit) and unit == "player" and not IsSecret(power) and (power == "ENERGY" or (DB.finisherComboOnly and power=="COMBO_POINTS")) then RequestUpdate() end
+        if DB.enabled and not IsSecret(unit) and unit == "player" and not IsSecret(power) and (power == "ENERGY" or ((DB.finisherComboOnly or (DB.chains and DB.chains.enabled)) and power=="COMBO_POINTS")) then RequestUpdate() end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellID = ...
         if DB.enabled and DB.finisherComboOnly and not IsSecret(unit) and unit=="player" then RequestUpdate() end
