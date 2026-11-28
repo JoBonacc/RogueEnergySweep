@@ -848,7 +848,7 @@ end)()
     -- Drive the actual protected countdown with the same decision contract.
     local g={public=false,generation=-1}; local samples=0
     local e=setmetatable({SafeNumber=function(v) if type(v)=="number" then return v end end,progressGeneration=0,MakeCurve=function() return {} end,Evaluate=function() samples=samples+1; return secret,true end},{__index=_G})
-    local run=assert(load(section("local function Countdown","local function ResetProgress").."\nreturn Countdown","cast snapshot","t",e))()
+    local run=assert(load(section("local function Countdown(","local function ResetProgress").."\nreturn Countdown","cast snapshot","t",e))()
     run(g,60,secret,secret); assert(samples==2)
     env.C_Spell.GetSpellPowerCost=function() return nil end
     if decision(921) then e.progressGeneration=e.progressGeneration+1 end
