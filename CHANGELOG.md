@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.22.0
+- Add per-source local follow-up timing windows, defaulting to one second. Longer windows scale the existing assumed energy/GCD; global reservations and repeat budgets remain unchanged.
+- Add opt-in independent follow-up pip shape, size, placement, alignment, spacing, outline, brightness, inactive opacity and offset. Preserve existing shared appearance and warning glyphs by default.
+
 ## v0.21.1
 - Fix countdown animation restarting on free abilities such as Pick Pocket. Only confirmed positive energy costs trigger cast-based snapshot resets; nil, unavailable, protected and zero costs preserve the previous snapshot. Public energy decreases still reset naturally. Diagnostics report confirmed resets and skipped free/unknown casts.
 

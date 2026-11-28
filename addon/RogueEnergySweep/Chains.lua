@@ -21,6 +21,16 @@ local function Normalize(c)
     c.repeatShape=c.repeatShape=="square" and "square" or c.repeatShape=="diamond" and "diamond" or "circle"
     c.outline=number(c.outline,1,0,3); c.brightness=number(c.brightness,0,0,1); c.inactiveOpacity=number(c.inactiveOpacity,.85,0,1)
     c.offset=number(c.offset,0,-24,24); c.regen=number(c.regen,10,0,30)
+    -- Independent follow-up appearance is opt-in; inherit existing values on upgrade.
+    c.separateFollow=c.separateFollow==true
+    local f=type(c.followStyle)=="table" and c.followStyle or {}
+    f.size=number(f.size,c.size,4,24); f.spacing=number(f.spacing,c.spacing,0,10)
+    f.placement=(f.placement=="outside" or f.placement=="inside") and f.placement or c.placement
+    f.align=(f.align=="left" or f.align=="center" or f.align=="right") and f.align or c.align
+    f.shape=f.shape=="circle" and "circle" or f.shape=="square" and "square" or "diamond"
+    f.outline=number(f.outline,c.outline,0,3); f.brightness=number(f.brightness,c.brightness,0,1)
+    f.inactiveOpacity=number(f.inactiveOpacity,c.inactiveOpacity,0,1); f.offset=number(f.offset,c.offset,-24,24)
+    c.followStyle=f
     c.maxPips=math.floor(number(c.maxPips,4,1,6))
     c.rules=type(c.rules)=="table" and c.rules or {}; c.colors=type(c.colors)=="table" and c.colors or {}
     c.globalFollow=type(c.globalFollow)=="table" and c.globalFollow or {}
@@ -35,8 +45,8 @@ function C.Init(d) db=d; d.chains=Normalize(d.chains); cfg=d.chains; signature=n
 local function RepeatThreshold(cost,n,regen)
     return cost+(n-1)*math.max(0,cost-regen)
 end
-local function FollowThreshold(first,next,regen)
-    return math.max(first,first+next-regen)
+local function FollowThreshold(first,next,regen,window)
+    return math.max(first,first+next-regen*(window or 1))
 end
 local function GetColor(id,name)
     local index=cfg.colors[id]
@@ -83,10 +93,10 @@ end
 local function Rule(e)
     local r=cfg.rules[e.id]
     if type(r)~="table" then return DefaultRule(e) end
-    return {repeatPips=r.repeatPips==true,follow=type(r.follow)=="table" and r.follow or {},conditions=type(r.conditions)=="table" and r.conditions or {}}
+    return {repeatPips=r.repeatPips==true,follow=type(r.follow)=="table" and r.follow or {},conditions=type(r.conditions)=="table" and r.conditions or {},window=number(r.window,1,1,10)}
 end
 local function EditRule(e)
-    local r=Rule(e); local copy={repeatPips=r.repeatPips,follow={},conditions={}}
+    local r=Rule(e); local copy={repeatPips=r.repeatPips,follow={},conditions={},window=r.window or 1}
     for _,id in ipairs(r.follow) do copy.follow[#copy.follow+1]=id; if r.conditions then copy.conditions[id]=r.conditions[id] end end
     cfg.rules[e.id]=copy; return copy
 end
@@ -96,6 +106,10 @@ function C.OptionsRule(id) local e=catalog[id]; return e and Rule(e) or {repeatP
 function C.OptionsColor(id) return GetColor(id) end
 function C.OptionsPalette() return palette end
 function C.SetRepeat(id,value) local e=catalog[id]; if e then EditRule(e).repeatPips=value==true; signature=nil; return true end end
+function C.SetWindow(id,seconds)
+    local e=catalog[id]; if not e then return false end
+    EditRule(e).window=number(seconds,1,1,10); signature=nil; return true
+end
 function C.SetColor(id,index) if catalog[id] and palette[index] then cfg.colors[id]=index; signature=nil; return true end end
 function C.SetLocal(id,target,condition)
     local e=catalog[id]; if not e or id==target or not catalog[target] or cfg.globalFollow[target] then return false end
@@ -225,10 +239,11 @@ function C.ArsenalSpec(entry,maximum,allRepeats)
 end
 local function FollowDefinitions(entry,rule)
     local defs,seen={},{}
-    local function Add(id,condition)
+    local function Add(id,condition,window)
         local e=catalog[id]
         if #defs>=3 or not e or not e.current or id==entry.id or seen[id] or api.excluded({spellID=id,category=e.category}) then return end
-        local threshold=FollowThreshold(entry.cost,e.cost,cfg.regen)
+        local threshold=FollowThreshold(entry.cost,e.cost,cfg.regen,window)
+        if e.cost>maxEnergy then threshold=math.max(threshold,maxEnergy+1) end
         local warning=condition=="warning"
         if (warning and threshold>entry.cost and entry.cost<=maxEnergy) or (not warning and threshold<=maxEnergy) then
             defs[#defs+1]={lo=warning and entry.cost or 0,hi=threshold,partial=false,kind="follow",warning=warning,id=id,n=#defs+1}
@@ -240,7 +255,7 @@ local function FollowDefinitions(entry,rule)
     for _,condition in ipairs({"warning","opportunity"}) do
         for _,e in ipairs(ordered) do if cfg.globalFollow[e.id]==condition then Add(e.id,condition) end end
     end
-    for _,id in ipairs(rule.follow) do if not cfg.globalFollow[id] then Add(id,rule.conditions and rule.conditions[id] or "opportunity") end end
+    for _,id in ipairs(rule.follow) do if not cfg.globalFollow[id] then Add(id,rule.conditions and rule.conditions[id] or "opportunity",rule.window) end end
     return defs
 end
 local function Setup(record,entry)
@@ -260,13 +275,14 @@ local function Setup(record,entry)
     if record.frame.GetWidth then local ok,v=pcall(record.frame.GetWidth,record.frame); if ok then width=api.safe(v) or width end end
     local repeatCount,followCount=0,0
     for _,d in ipairs(defs) do if d.kind=="repeat" then repeatCount=repeatCount+1 else followCount=followCount+1 end end
-    local function Fit(count)
-        if cfg.placement=="outside" then return cfg.size,cfg.spacing end
-        local gap=math.min(cfg.spacing,math.max(0,(width-2)/math.max(1,count)*.25))
-        local size=math.max(2,math.min(cfg.size,(width-2-(count-1)*gap)/math.max(1,count)))
+    local followStyle=cfg.separateFollow and cfg.followStyle or cfg
+    local function Fit(count,style)
+        if style.placement=="outside" then return style.size,style.spacing end
+        local gap=math.min(style.spacing,math.max(0,(width-2)/math.max(1,count)*.25))
+        local size=math.max(2,math.min(style.size,(width-2-(count-1)*gap)/math.max(1,count)))
         return size,gap
     end
-    local repeatSize,repeatGap=Fit(repeatCount); local followSize,followGap=Fit(followCount)
+    local repeatSize,repeatGap=Fit(repeatCount,cfg); local followSize,followGap=Fit(followCount,followStyle)
     for i,d in ipairs(defs) do
         local p=r.pips[i]
         if not p then
@@ -275,35 +291,37 @@ local function Setup(record,entry)
         end
         StopPulse(p)
         local repeatTexture=cfg.repeatShape=="square" and WHITE or cfg.repeatShape=="diamond" and DIAMOND or CIRCLE
-        local texture=d.kind=="repeat" and repeatTexture or (d.warning and WARNING or DIAMOND)
+        local style=d.kind=="repeat" and cfg or followStyle
+        local followTexture=style.shape=="square" and WHITE or style.shape=="circle" and CIRCLE or DIAMOND
+        local texture=d.kind=="repeat" and repeatTexture or (d.warning and WARNING or followTexture)
         local size,gap=repeatSize,repeatGap
         if d.kind=="follow" then size,gap=followSize,followGap end
         p.frame:SetSize(size,size); p.frame:ClearAllPoints()
         local count=d.kind=="repeat" and repeatCount or followCount
         local rowWidth=count*size+math.max(0,count-1)*gap
-        local left=cfg.align=="center" and (width-rowWidth)/2 or cfg.align=="right" and width-rowWidth-1 or 1
+        local left=style.align=="center" and (width-rowWidth)/2 or style.align=="right" and width-rowWidth-1 or 1
         local x=left+(d.n-1)*(size+gap)
         if d.kind=="repeat" then
-            if cfg.placement=="outside" then p.frame:SetPoint("BOTTOMLEFT",r.frame,"TOPLEFT",x,2+cfg.offset)
-            else p.frame:SetPoint("TOPLEFT",r.frame,"TOPLEFT",x,cfg.offset-1) end
+            if style.placement=="outside" then p.frame:SetPoint("BOTTOMLEFT",r.frame,"TOPLEFT",x,2+style.offset)
+            else p.frame:SetPoint("TOPLEFT",r.frame,"TOPLEFT",x,style.offset-1) end
         else
-            if cfg.placement=="outside" then p.frame:SetPoint("TOPLEFT",r.frame,"BOTTOMLEFT",x,-2-cfg.offset)
-            else p.frame:SetPoint("BOTTOMLEFT",r.frame,"BOTTOMLEFT",x,-cfg.offset+1) end
+            if style.placement=="outside" then p.frame:SetPoint("TOPLEFT",r.frame,"BOTTOMLEFT",x,-2-style.offset)
+            else p.frame:SetPoint("BOTTOMLEFT",r.frame,"BOTTOMLEFT",x,-style.offset+1) end
         end
-        p.bg:SetTexture(texture); p.bg:SetVertexColor(.15,.13,.11,cfg.inactiveOpacity)
-        p.outline:ClearAllPoints(); p.outline:SetPoint("TOPLEFT",p.frame,"TOPLEFT",-cfg.outline,cfg.outline); p.outline:SetPoint("BOTTOMRIGHT",p.frame,"BOTTOMRIGHT",cfg.outline,-cfg.outline)
+        p.bg:SetTexture(texture); p.bg:SetVertexColor(.15,.13,.11,style.inactiveOpacity)
+        p.outline:ClearAllPoints(); p.outline:SetPoint("TOPLEFT",p.frame,"TOPLEFT",-style.outline,style.outline); p.outline:SetPoint("BOTTOMRIGHT",p.frame,"BOTTOMRIGHT",style.outline,-style.outline)
         p.outline:SetTexture(d.warning and DIAMOND or texture); p.outline:SetVertexColor(0,0,0,1)
-        if cfg.outline>0 then p.outline:Show() else p.outline:Hide() end
+        if style.outline>0 then p.outline:Show() else p.outline:Hide() end
         p.bar:SetStatusBarTexture(texture)
-        local color=GetColor(d.id); local light=cfg.brightness
+        local color=GetColor(d.id); local light=style.brightness
         p.bar:SetStatusBarColor(color[1]+(1-color[1])*light,color[2]+(1-color[2])*light,color[3]+(1-color[3])*light,1)
-        p.warning=d.warning==true
+        p.warning=d.warning==true; p.hideInactive=cfg.hideInactive or style.inactiveOpacity==0
         if p.warning then
             p.curve,p.key=WarningCurve(d.lo,d.hi)
             p.alphaCurve,p.alphaKey=p.curve,p.key
             p.bg:Hide(); p.bar:SetValue(1); p.frame:SetAlpha(0)
         else
-            if cfg.inactiveOpacity>0 then p.bg:Show() else p.bg:Hide() end; p.curve,p.key=Curve(d.lo,d.hi,d.partial and d.hi>d.lo)
+            if style.inactiveOpacity>0 then p.bg:Show() else p.bg:Hide() end; p.curve,p.key=Curve(d.lo,d.hi,d.partial and d.hi>d.lo)
             -- Hide-inactive uses a separate readiness curve, not a Lua test on energy.
             p.alphaCurve,p.alphaKey=Curve(0,d.partial and math.min(d.hi,d.lo+.5) or d.hi,false)
             p.bar:SetValue(0); p.frame:SetAlpha(1)
@@ -316,9 +334,11 @@ function C.Sync(records,max)
     if not cfg or not api then return end
     Remember(records); maxEnergy=max
     local bits={tostring(cfg.enabled),tostring(cfg.repeatEnabled),cfg.repeatCount,cfg.placement,cfg.align,cfg.repeatShape,cfg.outline,cfg.brightness,cfg.inactiveOpacity,cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),tostring(cfg.pulseWarnings),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max}
+    local f=cfg.followStyle
+    for _,v in ipairs({tostring(cfg.separateFollow),f.size,f.spacing,f.placement,f.align,f.shape,f.outline,f.brightness,f.inactiveOpacity,f.offset}) do bits[#bits+1]=v end
     for _,e in ipairs(ordered) do
         local r=Rule(e); bits[#bits+1]=e.id..":"..e.cost..":"..tostring(r.repeatPips)..":"..select(2,GetColor(e.id))
-        bits[#bits+1]="global:"..tostring(cfg.globalFollow[e.id])
+        bits[#bits+1]="global:"..tostring(cfg.globalFollow[e.id])..":window:"..tostring(r.window or 1)
         for _,id in ipairs(r.follow) do bits[#bits+1]=tostring(id)..":"..tostring(r.conditions and r.conditions[id]) end
     end
     for _,r in ipairs(records) do bits[#bits+1]=tostring(r)..":"..tostring(r.spellID)..":"..tostring(api.excluded(r)) end
@@ -359,7 +379,7 @@ function C.Update(record,eligible)
                     if cfg.pulseWarnings and p.pulse and not p.pulsing then p.pulse:Play(); p.pulsing=true end
                 else
                 p.bar:SetValue(value)
-                if cfg.hideInactive or cfg.inactiveOpacity==0 then
+                if p.hideInactive then
                     local alpha,good=Sample(p.alphaCurve,p.alphaKey)
                     if good then p.frame:SetAlpha(alpha) else p.frame:SetAlpha(0) end
                 else p.frame:SetAlpha(1) end

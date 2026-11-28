@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.21.1 (WoW Forever)
+-- Rogue Energy Sweep 0.22.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...

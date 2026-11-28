@@ -55,3 +55,5 @@ Ability Chains now supports opportunity (+) and warning (!) follow-ups and globa
 **Unified settings (v0.20.0):** `/resweep` opens one window organized by intent, with contextual controls, HUD thumbnails, quick setup and direct Kick reservation. Legacy options remain available as `/resweep legacy`.
 
 **v0.21.0:** Action-bar planning defaults to additional casts, with total casts optional and expanded pip appearance controls. Arsenal stays total casts. Experimental live GCD prediction is retired.
+
+**v0.22.0:** Local follow-up rules can use a configurable 1–10 second assumed regeneration window (e.g. Gouge). Independent follow-up pip styling is optional. Live tick timing is not predicted; global reservations and repeat budgets are unchanged.

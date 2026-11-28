@@ -527,6 +527,7 @@ local first=assert(chainSrc:find("local function RepeatThreshold",1,true)); loca
 local repeatCost,followCost=assert(load(chainSrc:sub(first,last-1).."\nreturn RepeatThreshold,FollowThreshold","chain thresholds","t",_G))()
 assert(repeatCost(45,2,10)==80 and repeatCost(35,3,10)==85 and followCost(45,60,10)==95)
 assert(followCost(45,25,10)==60 and followCost(45,5,10)==45)
+assert(followCost(45,60,10,4)==65 and followCost(45,60,10,5.5)==50 and followCost(45,60,10,10)==45)
 print("PASS: repeat and follow-up threshold math")
 
 local bpSource=assert(io.open("addon/RogueEnergySweep/Tracker.lua")); local bpText=bpSource:read("*a"); bpSource:close()
@@ -686,6 +687,22 @@ assert(rawequal(wbars[1].parent.alpha,secret) and wbars[1].SetValueArgs[1]==1)
 assert(wbars[1].animation.plays==1)
 warnings.Update(wa,false); assert(not wbars[1].parent.parent.shown and wbars[1].animation.stops==1)
 assert(#Bars(wk)==0,"reserved ability itself must not get its own global warning")
+assert(warnings.SetLocal(4,2,"opportunity"))
+assert(warnings.SetWindow(4,4))
+assert(warnings.OptionsRule(4).window==4)
+warningDB.chains.separateFollow=true; warningDB.chains.followStyle.shape="square"; warningDB.chains.followStyle.size=16
+warnings.Sync(wr,100); energyValue=55; warnings.Begin(); warnings.Update(wg,true)
+local gougeBars=Bars(wg)
+assert(#gougeBars==2)
+near(gougeBars[1].parent.alpha,1); near(gougeBars[2].SetValueArgs[1],0)
+assert(gougeBars[2].SetStatusBarTextureArgs[1]:find("WHITE8X8",1,true))
+energyValue=64; warnings.Begin(); warnings.Update(wg,true); near(gougeBars[2].SetValueArgs[1],0)
+energyValue=65; warnings.Begin(); warnings.Update(wg,true); near(gougeBars[2].SetValueArgs[1],1)
+near(gougeBars[1].parent.alpha,0)
+assert(warnings.SetLocal(4,2,"warning")); assert(warnings.OptionsRule(4).window==4)
+warnings.Sync(wr,100); energyValue=64; warnings.Begin(); warnings.Update(wg,true)
+near(Bars(wg)[2].parent.alpha,1)
+warningDB.chains.separateFollow=false
 warnings.Command("minimal"); assert(warningDB.chains.globalFollow[3]=="warning")
 warnings.Sync(wr,100); warnings.Begin(); warnings.Update(wb,true)
 assert(#Bars(wb)>=1)
@@ -733,7 +750,7 @@ end)()
         status=function() return "ok" end,profile=function() end,profiling=function() return false end,command=function() end,
         previewMake=function() return {} end,previewPaint=function() painted=painted+1 end,previewClear=function() end})
     options.Register()
-    for _,entry in ipairs({{"bars"},{"bars","appearance"},{"bars","behavior"},{"bars","ready"},{"bars","filters"},{"hud"},{"hud","abilities"},{"hud","position"},{"hud","appearance"},{"planning"},{"planning","rules"},{"planning","global"},{"planning","appearance"},{"planning","templates"},{"advanced"},{"setup"}}) do
+    for _,entry in ipairs({{"bars"},{"bars","appearance"},{"bars","behavior"},{"bars","ready"},{"bars","filters"},{"hud"},{"hud","abilities"},{"hud","position"},{"hud","appearance"},{"planning"},{"planning","rules"},{"planning","global"},{"planning","appearance"},{"planning","followappearance"},{"planning","templates"},{"advanced"},{"setup"}}) do
         assert(options.Open(entry[1],entry[2]),"failed page "..table.concat(entry,"/"))
     end
     local function Click(label)

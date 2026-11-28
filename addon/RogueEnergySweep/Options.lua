@@ -369,7 +369,8 @@ local function Planning()
         Paragraph(c.placement=="outside" and "Pips can be larger outside buttons; check spacing with neighboring bars." or "Inside buttons, pips shrink to fit the available width.")
         Choices({{"left","Left aligned"},{"center","Centered"},{"right","Right aligned"}},c.align,function(v) c.align=v end,3)
         Choices({{"circle","Repeat circles"},{"square","Repeat squares"},{"diamond","Repeat diamonds"}},c.repeatShape,function(v) c.repeatShape=v end,3)
-        Paragraph("Follow-ups remain diamonds; warning diamonds have an exclamation mark.")
+        Paragraph("Follow-up opportunities default to diamonds; warnings keep their exclamation mark.")
+        Link("Separate follow-up pip appearance",function() Go("planning","followappearance") end)
         Slider("Pip size",c.size,4,24,1,function(v) c.size=v end," px")
         Slider("Spacing",c.spacing,0,10,1,function(v) c.spacing=v end," px")
         Slider("Outline thickness",c.outline,0,3,1,function(v) c.outline=v end," px")
@@ -389,6 +390,24 @@ local function Planning()
             Rect(W-145,y+5,20,15,color[1],color[2],color[3]); y=y+30
         end
         return
+    elseif sub=="followappearance" then
+        Heading("Follow-up pip appearance","Customize the chain indicators separately from consecutive-use pips.")
+        Back("planning")
+        Check("Use separate follow-up appearance",c.separateFollow,function(v) c.separateFollow=v end,"Off uses the shared placement, size and visibility settings.")
+        if not c.separateFollow then return end
+        local f=c.followStyle
+        Choices({{"inside","Inside action buttons"},{"outside","Outside action buttons"}},f.placement,function(v) f.placement=v end,2)
+        Choices({{"left","Left aligned"},{"center","Centered"},{"right","Right aligned"}},f.align,function(v) f.align=v end,3)
+        Choices({{"circle","Circle"},{"square","Square"},{"diamond","Diamond"}},f.shape,function(v) f.shape=v end,3)
+        Paragraph("Warning indicators retain their exclamation mark. Overall opacity and ability colors remain shared.")
+        Slider("Follow-up pip size",f.size,4,24,1,function(v) f.size=v end," px")
+        Slider("Follow-up spacing",f.spacing,0,10,1,function(v) f.spacing=v end," px")
+        Slider("Follow-up outline",f.outline,0,3,1,function(v) f.outline=v end," px")
+        Slider("Follow-up brightness",math.floor(f.brightness*100+.5),0,100,5,function(v) f.brightness=v/100 end,"%")
+        Slider("Inactive follow-up opacity",math.floor(f.inactiveOpacity*100+.5),0,100,5,function(v) f.inactiveOpacity=v/100 end,"%")
+        Slider("Follow-up vertical offset",f.offset,-24,24,1,function(v) f.offset=v end," px")
+        Check("Pulse warning indicators",c.pulseWarnings,function(v) c.pulseWarnings=v end)
+        return
     elseif sub=="rules" then
         Heading("Custom follow-ups","Choose a source ability, then what you want to know after casting it.")
         Back("planning")
@@ -401,6 +420,9 @@ local function Planning()
         Choices(opts,sourceID,function(v) sourceID=v end,2)
         local rule=C.OptionsRule(sourceID)
         Check("Show consecutive-use pips for "..source.name,rule.repeatPips,function(v) C.SetRepeat(sourceID,v) end)
+        Section("Follow-up timing","Local follow-ups use the assumed regeneration per second (one-second Rogue GCD). Global reservations and repeat pips still use one GCD.")
+        Slider("Follow-up window",rule.window or 1,1,10,.5,function(v) C.SetWindow(sourceID,v) end," sec")
+        Paragraph("Use 1 second for the next GCD. For Gouge, set the actual talented duration minus any safety margin. This is an energy budget, not a live tick or crowd-control timer.")
         Section("What can I do afterward?","Show + lights up when affordable. Warn ! lights up when the source is affordable but the target is not. Off hides the relationship.")
         local chosen={}; for _,id in ipairs(rule.follow) do chosen[id]=true end
         for _,e in ipairs(entries) do
@@ -449,6 +471,7 @@ local function Planning()
     else Paragraph("Kick must be on an action bar to configure this shortcut.") end
     Link("Other global reservations and opportunities",function() Go("planning","global") end)
     Link("Pip appearance and ability colors",function() Go("planning","appearance") end)
+    Link("Separate follow-up pip appearance",function() Go("planning","followappearance") end)
     Link("Starting templates",function() Go("planning","templates") end)
     Paragraph("Predictions are energy-only, not guarantees of cooldown, combo-point or positional eligibility.")
 end
@@ -459,7 +482,7 @@ local function Advanced()
     Check("Only show indicators in combat",d.combatOnly,function(v) d.combatOnly=v end)
     Section("Calculation assumptions")
     Slider("Assumed regeneration per GCD",c.regen,0,30,1,function(v) c.regen=v end," energy")
-    Paragraph("Used by repeat pips and follow-up budgets, not by the live energy sweep.")
+    Paragraph("Used by repeat pips and follow-up budgets, not by the live energy sweep. Longer local follow-up windows scale this assumption per second; actual tick timing is not predicted.")
     Section("Troubleshooting")
     Check("Profile update performance",api.profiling(),function(v) api.profile(v) end)
     Link("Diagnostics report",api.diagnostic)
