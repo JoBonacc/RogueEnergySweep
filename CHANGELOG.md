@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.24.1
+- Capture Gouge target aura, Kick/Gouge cooldowns, actual cast cooldowns and Classic/Retail GCD probes in the diagnostic recorder; report cooldown-event-only GCD flags.
+- Preserve exact numeric IDs and emit changed fields only. No gameplay behavior changed.
+
 ## v0.24.0
 - Add opt-in API diagnostics, live self-test, bounded session-only combat recording and copyable report. No gameplay prediction changes.
 - Fix stale version label in existing diagnostics.

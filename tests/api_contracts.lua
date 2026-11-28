@@ -901,15 +901,19 @@ end)()
         GetBuildInfo=function() return "1.60.1","71091","date",16001 end,
         UnitPower=function() return secret end,UnitPowerMax=function() return 100 end,GetComboPoints=function() return 3 end,GetPowerRegenForPowerType=function() return secret,secret end,
         C_Secrets={GetPowerTypeSecrecy=function(p) return p==4 and 0 or 2 end,ShouldUnitStatsBeSecret=function() return true end},
-        C_Spell={GetSpellPowerCost=function() return {{type=3,cost=secret,minCost=45,requiredAuraID=1,hasRequiredAura=false}} end},
-        C_UnitAuras={GetAuraDataBySpellName=function() return nil end}}, {__index=_G})
+        C_Spell={GetSpellPowerCost=function() return {{type=3,cost=secret,minCost=45,requiredAuraID=1,hasRequiredAura=false}} end,
+            GetSpellInfo=function(id) return {name=id==1776 and "Gouge" or "Test"} end,
+            GetSpellCooldownDuration=function(id,ignore) return {GetRemainingDuration=function() return id==29515 and secret or (ignore and 8 or 1) end} end,
+            GetSpellCooldown=function(id) return {startTime=secret,duration=secret,isActive=true,isOnGCD=true} end},
+        C_UnitAuras={GetAuraDataBySpellName=function(unit,name,filter) if unit=="target" and name=="Gouge" and filter=="HARMFUL" then return {spellId=1776,duration=4,expirationTime=12345.125,auraInstanceID=130501} end end}}, {__index=_G})
     assert(loadfile("addon/RogueEnergySweep/APIDiagnostics.lua","t",e))("RogueEnergySweep",ns)
     local D=ns.APIDiagnostics
     D.Configure({spells=function() return {999} end})
-    local report=D.SelfTest(); assert(report:find("energy=<secret>",1,true)); assert(report:find("regen=<secret> / <secret>",1,true)); assert(report:find("spell 999",1,true)); assert(report:find("hasRequiredAura=false",1,true))
+    local report=D.SelfTest(); assert(report:find("energy=<secret>",1,true)); assert(report:find("regen=<secret> / <secret>",1,true)); assert(report:find("spell 999",1,true)); assert(report:find("hasRequiredAura=false",1,true)); assert(report:find("instance=130501",1,true)); assert(report:find("duration=4",1,true)); assert(report:find("cooldown probe 29515",1,true)); assert(report:find("remainingAll=<secret>",1,true)); assert(not report:find("isOnGCD=",1,true)); assert(report:find("interface=16001",1,true))
     assert(D.Start()); assert(registered.UNIT_SPELLCAST_SUCCEEDED); assert(not D.Start())
     scripts.OnEvent(frame,"UNIT_SPELLCAST_SUCCEEDED","player",nil,secret)
-    clock=1; scripts.OnUpdate(frame,.3); D.Stop()
+    clock=1; scripts.OnUpdate(frame,.3); scripts.OnEvent(frame,"UNIT_AURA","target"); scripts.OnEvent(frame,"SPELL_UPDATE_COOLDOWN"); D.Stop()
+    assert(D.Report():find("isOnGCD=true",1,true)); local _,n=D.Report():gsub("cost 999=", ""); assert(n==1)
     assert(D.Report():find("spell=<secret>",1,true)); assert(not scripts.OnUpdate and next(registered)==nil)
     assert(D.Start()); for i=1,500 do if scripts.OnEvent then scripts.OnEvent(frame,"PLAYER_TARGET_CHANGED") end end
     assert(D.Status():find("limit reached",1,true)); assert(not scripts.OnUpdate)

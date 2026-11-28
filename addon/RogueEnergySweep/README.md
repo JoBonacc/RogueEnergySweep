@@ -106,3 +106,6 @@ Improved Gouge reads active combat trait configuration and active rank (not lega
 
 ## API diagnostics (v0.24.0)
 /resweep selftest runs a live API snapshot; /resweep api opens the report and recording controls. /resweep api start and /resweep api stop work without the settings window. Record a short sequence including Poised gain/consumption, Shank, or regeneration. Select all then Ctrl+C. Reports distinguish secret, nil, missing and error. Recording is opt-in, session-only, bounded to 480 changed or forced snapshots; includes player resources, selected aura queries, spell costs and public cast spell IDs, no target names/GUIDs or chat. /resweep api spell 123 adds a spell ID for the next session. Native sink acceptance is not a visual test. No gameplay model changes.
+
+### v0.24.1 diagnostic trace
+Record Gouge, Kick, and ordinary GCD-triggering abilities. First snapshot includes all fields; later lines only show changed fields (unchanged means no observed change). Target Gouge aura fields are queried, not inferred. GCD candidates 29515 and 61304 are probes, not proof of GCD access. `isOnGCD` is reported only on SPELL_UPDATE_COOLDOWN. Exact numeric IDs are retained.

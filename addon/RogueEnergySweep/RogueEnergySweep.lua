@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.24.0 (WoW Forever)
+-- Rogue Energy Sweep 0.24.1 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...
@@ -1425,7 +1425,7 @@ local function DiagnosticReport()
         for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
     end
     local lines={
-        "Rogue Energy Sweep v0.24.0 diagnostic report",
+        "Rogue Energy Sweep v0.24.1 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
