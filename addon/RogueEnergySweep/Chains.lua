@@ -477,7 +477,7 @@ function C.Sync(records,max)
     end
     for _,r in ipairs(records) do
         local width=r.frame and r.frame.GetWidth and PublicCall(r.frame.GetWidth,r.frame)
-        bits[#bits+1]=tostring(r)..":"..tostring(r.spellID)..":"..tostring(api.excluded(r))..":"..tostring(api.safe(width))
+        bits[#bits+1]=tostring(r)..":"..tostring(r.spellID)..":"..tostring(api.excluded(r))..":"..tostring(api.safe(width) or 36)
     end
     local key=table.concat(bits,"|")
     if key~=signature or (pendingLayout and (not InCombatLockdown or not InCombatLockdown())) then
