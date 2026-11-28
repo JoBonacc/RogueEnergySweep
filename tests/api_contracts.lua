@@ -825,7 +825,7 @@ end)()
 end)()
 
 ;(function()
-    local decision=assert(load(section("local function IsSecret","local MODES")..section("local function GetEnergyCost","-- Forever combo points").."\nreturn CountdownCastDecision","countdown cast decisions","t",env))()
+    local decision=assert(load(section("local function IsSecret","local MODES")..section("local FINISHERS","-- Known combo-point")..section("local function GetEnergyCost","-- Forever combo points").."\nreturn CountdownCastDecision","countdown cast decisions","t",env))()
     local function Expect(rows,expected,reason,id)
         env.C_Spell.GetSpellPowerCost=function() return rows end
         local reset,why=decision(id or 123)
