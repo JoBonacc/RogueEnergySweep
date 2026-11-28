@@ -490,6 +490,7 @@ local function trackerWidget(parent,kind,name)
 end
 local ui=trackerWidget(nil,"UIParent")
 local trackerEnv=setmetatable({UIParent=ui,unpack=table.unpack,issecretvalue=env.issecretvalue,
+    C_SpellBook={IsSpellKnown=function(id,bank) assert(bank==0); return id==1 or id==2 or id==3 or id==4 end},
     C_Spell={GetSpellInfo=function(id) return {name="Ability "..id,iconID=id+100} end},
     UnitPower=function() return secret end,
     CreateFrame=function(kind,name,parent) local w=trackerWidget(parent,kind,name); frames[#frames+1]=w; return w end
@@ -584,6 +585,13 @@ chainDB.chains.rules[1]={repeatPips=false,follow={}}
 chains.Sync({cb1,cb2},100); chains.Begin(); chains.Update(cb1,true)
 assert(not chainWidgets[1].shown)
 assert(chains.Status():find("last error none",1,true),chains.Status())
+-- Explicit reserve must cover a later page change without combat allocation.
+chains.Reserve({cb1,cb2}); local allocated=#chainWidgets
+chainEnv.InCombatLockdown=function() return true end
+chainDB.chains.rules[2]={repeatPips=true,follow={1}}
+chains.Sync({cb2,cb1},100); chains.Begin(); chains.Update(cb2,true)
+assert(#chainWidgets==allocated and chains.Status():find("last error none",1,true))
+chainEnv.InCombatLockdown=nil
 print("PASS: native Ability Chains widgets, protected samples, additional repeat slots, follow-up, and stale rule cleanup")
 
 -- Arsenal shares the real Chains settings and curve builder.
