@@ -304,8 +304,62 @@ function D.Open()
     end
     panel:Show(); refresh()
 end
+-- Isolated visual test: native output goes straight to an insecure widget.
+-- Do not read its alpha or derive a number from protected duration data.
+local probe
+local function WindowCurve(seconds)
+    local c=C_CurveUtil.CreateCurve()
+    if c.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then c:SetType(Enum.LuaCurveType.Linear) end
+    c:AddPoint(0,1)
+    if seconds>0 then c:AddPoint(seconds,1) end
+    c:AddPoint(seconds+.01,0); c:AddPoint(86400,0)
+    return c
+end
+local function ApplyWindow(spell,curve,widget)
+    return pcall(function()
+        local duration=C_Spell.GetSpellCooldownDuration(spell,true)
+        if not Secret(duration) and duration==nil then error("no duration") end
+        local value=duration:EvaluateRemainingDuration(curve)
+        if not Secret(value) and type(value)~="number" then error("no alpha") end
+        widget:SetAlpha(value)
+    end)
+end
+D.WindowCurve=WindowCurve
+D.ApplyWindow=ApplyWindow
+function D.CooldownTest()
+    if not probe then
+        if InCombatLockdown and InCombatLockdown() then if api then api.say("Open the cooldown test outside combat first.") end; return end
+        probe=CreateFrame("Frame","RogueEnergySweepCooldownTest",UIParent,"BasicFrameTemplateWithInset")
+        probe:SetSize(310,184); probe:SetPoint("CENTER",UIParent,"CENTER",230,120); probe:SetFrameStrata("DIALOG"); probe:EnableMouse(true)
+        probe:SetMovable(true); probe:SetClampedToScreen(true); probe:RegisterForDrag("LeftButton")
+        probe:SetScript("OnDragStart",function(self) self:StartMoving() end); probe:SetScript("OnDragStop",function(self) self:StopMovingOrSizing() end)
+        if probe.TitleText then probe.TitleText:SetText("Kick — native cooldown test") end
+        if UISpecialFrames then UISpecialFrames[#UISpecialFrames+1]=probe:GetName() end
+        local rows={}
+        for i,seconds in ipairs({0,1,3.5}) do
+            local label=probe:CreateFontString(nil,"ARTWORK","GameFontHighlight")
+            label:SetPoint("TOPLEFT",18,-38-(i-1)*29); label:SetText(seconds==0 and "Ready now" or ("Ready within "..seconds.."s"))
+            local tile=CreateFrame("Frame",nil,probe); tile:SetSize(60,18); tile:SetPoint("TOPRIGHT",-20,-36-(i-1)*29)
+            local tex=tile:CreateTexture(nil,"ARTWORK"); tex:SetAllPoints(); tex:SetColorTexture(.2,.9,.4,1)
+            rows[i]={tile=tile,curve=WindowCurve(seconds)}
+        end
+        local state=probe:CreateFontString(nil,"ARTWORK","GameFontHighlightSmall"); state:SetPoint("BOTTOMLEFT",18,14)
+        local function Update()
+            local accepted=true
+            for _,r in ipairs(rows) do
+                if not ApplyWindow(1766,r.curve,r.tile) then accepted=false; r.tile:SetAlpha(0) end
+            end
+            state:SetText((InCombatLockdown() and "Combat" or "Out of combat").." | "..(accepted and "Native calls accepted" or "Native call rejected"))
+        end
+        local elapsed=0
+        probe:SetScript("OnUpdate",function(_,dt) elapsed=elapsed+dt; if elapsed>=.05 then elapsed=0; Update() end end)
+        probe:SetScript("OnShow",Update)
+    end
+    probe:Show()
+end
 function D.Command(arg)
-    if arg=="start" then D.Start(); if api then api.say(D.Status()) end
+    if arg=="cooldown" then D.CooldownTest()
+    elseif arg=="start" then D.Start(); if api then api.say(D.Status()) end
     elseif arg=="stop" then D.Stop(); if api then api.say(D.Status()) end; D.Open()
     elseif arg=="test" then D.SelfTest(); D.Open()
     elseif arg:match("^spell %d+$") then D.AddSpell(tonumber(arg:match("%d+"))); if api then api.say("Added diagnostic spell for next test/recording.") end

@@ -16,7 +16,7 @@ interface(nil); assert(status()=='unknown'); check(false); contains('unavailable
 env.GetBuildInfo=function() error('unavailable') end; assert(status()=='unknown'); check(true); assert(#messages==0)
 env.GetBuildInfo=false; assert(status()=='unknown')
 interface(16002); env.issecretvalue=function(v) return v==16002 end; assert(status()=='unknown'); check(true); assert(#messages==0)
-assert(src:find('if event == "PLAYER_ENTERING_WORLD" then CheckCompatibility(true); CheckBuild(true); RequestScan()',1,true))
+assert(src:find('if event == "PLAYER_ENTERING_WORLD" then if Chains then Chains.InvalidateTalents() end; CheckCompatibility(true); CheckBuild(true); RequestScan()',1,true))
 assert(src:find('CheckCompatibility(false)\n    CheckBuild(false)\nend',1,true))
 print('PASS: compatibility matching, mismatch, deduplication, recovery, invalid/secret values, and event/status wiring')
 

@@ -937,3 +937,16 @@ end)()
     ns.SpellFamilies.Migrate(d); assert(#r.follow==2)
     print("PASS: rank migration across rules, targets, timing, colors, filters and HUD selection/positions")
 end)()
+
+;(function()
+    local ns={}; local target={SetAlpha=function(self,v) self.value=v end}
+    local e=setmetatable({issecretvalue=function(v) return rawequal(v,secret) end,C_CurveUtil=env.C_CurveUtil,C_Spell={GetSpellCooldownDuration=function(id,ignore)
+        assert(id==1766 and ignore); return {EvaluateRemainingDuration=function(_,curve) assert(curve); return secret end}
+    end}},{__index=_G})
+    assert(loadfile("addon/RogueEnergySweep/APIDiagnostics.lua","t",e))("RogueEnergySweep",ns)
+    local D=ns.APIDiagnostics; local c=D.WindowCurve(3.5)
+    near(eval(c,3.5),1); near(eval(c,3.51),0)
+    assert(D.ApplyWindow(1766,c,target) and rawequal(target.value,secret))
+    e.C_Spell.GetSpellCooldownDuration=function() return nil end; assert(not D.ApplyWindow(1766,c,target))
+    print("PASS: native cooldown diagnostic forwards protected result without reading it")
+end)()

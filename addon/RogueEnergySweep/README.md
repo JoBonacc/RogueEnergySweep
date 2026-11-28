@@ -112,3 +112,5 @@ Record Gouge, Kick, and ordinary GCD-triggering abilities. First snapshot includ
 
 ## v0.25.0 behavior
 Known Classic spell-rank families migrate saved settings forward when a higher rank is confirmed by the public spellbook API. Explicit higher-rank settings win conflicts. Unknown abilities are not merged by name. Conditional costs apply only with confirmed aura requirements; ambiguous multi-row or percentage/per-second energy costs are withheld. Planning widgets are preallocated outside combat for existing overlays and visible action buttons; hidden/unloaded third-party buttons may still defer allocation until combat ends.
+
+`/resweep api cooldown` opens an isolated native Kick test panel. Open out of combat, then Kick during combat and observe the three green tiles for ready now, within 1s, and within 3.5s. This tests native curve display, not numerical extraction. Close the panel to stop its updates.

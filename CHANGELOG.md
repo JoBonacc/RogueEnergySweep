@@ -5,6 +5,7 @@
 - Honor required-aura cost rows; withhold ambiguous, protected or unsupported percentage/per-second costs instead of guessing.
 - Preallocate planning widgets for existing overlays and visible action buttons outside combat; retry deferred layouts. Avoid unchanged planning curve rebuilds and retry failed HUD layouts.
 - Replace legacy tracker known-spell lookup with C_SpellBook.IsSpellKnown. Keep protected cooldown and regeneration prediction unchanged.
+- Add isolated native Kick cooldown-window visual test (`/resweep api cooldown`) before integrating experimental gating.
 
 ## v0.24.1
 - Capture Gouge target aura, Kick/Gouge cooldowns, actual cast cooldowns and Classic/Retail GCD probes in the diagnostic recorder; report cooldown-event-only GCD flags.

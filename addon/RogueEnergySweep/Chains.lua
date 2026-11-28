@@ -373,7 +373,7 @@ local function FollowDefinitions(entry,rule)
     end
     return defs
 end
-local function Reserve(record)
+local function Reserve(record,all)
     local r=tracked[record]
     if not r then
         if InCombatLockdown and InCombatLockdown() then pendingLayout=true; return nil end
@@ -381,7 +381,7 @@ local function Reserve(record)
         frame:EnableMouse(false); frame:SetAllPoints(record.frame); frame:SetFrameLevel(record.frame:GetFrameLevel()+9); frame:Hide()
         r={frame=frame,pips={},count=0}; tracked[record]=r
     end
-    if not InCombatLockdown or not InCombatLockdown() then
+    if all and (not InCombatLockdown or not InCombatLockdown()) then
         for i=#r.pips+1,9 do r.pips[i]=NewPip(r.frame); r.pips[i].frame:Hide() end
     end
     return r
@@ -389,7 +389,7 @@ end
 function C.Reserve(overlays)
     if not cfg or not cfg.enabled or (InCombatLockdown and InCombatLockdown()) then return end
     for _,record in pairs(overlays) do
-        local ok=pcall(Reserve,record)
+        local ok=pcall(Reserve,record,true)
         if not ok then pendingLayout=true end
     end
 end
