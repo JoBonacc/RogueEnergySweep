@@ -66,3 +66,6 @@ Only after all relevant checks pass, record build, addon version, date, client c
 
 ## v0.20.2
 - [ ] Verify 29515 source availability outside and inside combat, projection counts and last unavailable reason, real deficits remain visible, no GCD-wide visual hold. Test 100-energy Sinister Strike -> Backstab only if public projection is available.
+
+## v0.21.0
+- [ ] Verify additional/total selection on 45-energy builder at 45/80/100 energy, partial and inactive modes, persistence, Arsenal total counts and unchanged follow-up warnings. Check larger/outside pips, left/center/right alignment, shapes, outline, brightness, opacity, and offset with adjacent bars. Confirm GCD prediction is absent from both settings interfaces and real energy remains visible.

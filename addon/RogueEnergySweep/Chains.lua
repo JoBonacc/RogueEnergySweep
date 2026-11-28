@@ -14,8 +14,13 @@ local function number(v,d,lo,hi) if type(v)~="number" or v~=v then v=d end; retu
 local function Normalize(c)
     c=type(c)=="table" and c or {}
     c.enabled=c.enabled==true; c.repeatEnabled=c.repeatEnabled~=false; c.fraction=c.fraction~=false; c.hideInactive=c.hideInactive==true
-    c.size=number(c.size,7,4,13); c.spacing=number(c.spacing,2,1,6); c.opacity=number(c.opacity,1,.2,1)
-    c.offset=number(c.offset,0,-12,12); c.regen=number(c.regen,10,0,30)
+    c.repeatCount=c.repeatCount=="total" and "total" or "additional"
+    c.size=number(c.size,7,4,24); c.spacing=number(c.spacing,2,0,10); c.opacity=number(c.opacity,1,.2,1)
+    c.placement=c.placement=="outside" and "outside" or "inside"
+    c.align=c.align=="center" and "center" or c.align=="right" and "right" or "left"
+    c.repeatShape=c.repeatShape=="square" and "square" or c.repeatShape=="diamond" and "diamond" or "circle"
+    c.outline=number(c.outline,1,0,3); c.brightness=number(c.brightness,0,0,1); c.inactiveOpacity=number(c.inactiveOpacity,.85,0,1)
+    c.offset=number(c.offset,0,-24,24); c.regen=number(c.regen,10,0,30)
     c.maxPips=math.floor(number(c.maxPips,4,1,6))
     c.rules=type(c.rules)=="table" and c.rules or {}; c.colors=type(c.colors)=="table" and c.colors or {}
     c.globalFollow=type(c.globalFollow)=="table" and c.globalFollow or {}
@@ -162,6 +167,7 @@ local function Curve(lo,hi,partial)
 end
 local function NewPip(parent)
     local f=CreateFrame("Frame",nil,parent); f:EnableMouse(false)
+    local outline=f:CreateTexture(nil,"BACKGROUND",nil,-1); outline:Hide()
     local bg=f:CreateTexture(nil,"BACKGROUND"); bg:SetAllPoints(f)
     local bar=CreateFrame("StatusBar",nil,f); bar:EnableMouse(false); bar:SetAllPoints(f)
     bar:SetOrientation("VERTICAL"); bar:SetMinMaxValues(0,1); bar:SetValue(0)
@@ -174,7 +180,7 @@ local function NewPip(parent)
         end)
         if ok then pulse=group end
     end
-    return {frame=f,bg=bg,bar=bar,pulse=pulse}
+    return {frame=f,bg=bg,bar=bar,pulse=pulse,outline=outline}
 end
 local function StopPulse(p)
     if p.pulse and p.pulsing then p.pulse:Stop(); p.pulsing=false end
@@ -190,12 +196,14 @@ local function Clear(record)
 end
 C.Clear=Clear
 function C.Hide() for _,r in pairs(tracked) do HideTracked(r) end end
-local function RepeatDefinitions(id,cost,maximum,limit,regen,fraction)
-    local defs={}; local previous=0
-    for n=1,limit do
+local function RepeatDefinitions(id,cost,maximum,limit,regen,fraction,additional)
+    local defs={}; local previous=additional and cost or 0
+    local first=additional and 2 or 1
+    if cost>maximum then return defs end
+    for n=first,first+limit-1 do
         local threshold=RepeatThreshold(cost,n,regen)
         if threshold>maximum and (not fraction or previous>=maximum) then break end
-        defs[#defs+1]={lo=previous,hi=threshold,partial=fraction and threshold>previous,kind="repeat",id=id,n=n}
+        defs[#defs+1]={lo=previous,hi=threshold,partial=fraction and threshold>previous,kind="repeat",id=id,n=n-first+1,casts=n}
         previous=threshold
         if threshold>maximum then break end
     end
@@ -237,7 +245,7 @@ local function FollowDefinitions(entry,rule)
 end
 local function Setup(record,entry)
     local rule=Rule(entry)
-    local defs=cfg.repeatEnabled and rule.repeatPips and RepeatDefinitions(entry.id,entry.cost,maxEnergy,cfg.maxPips,cfg.regen,cfg.fraction) or {}
+    local defs=cfg.repeatEnabled and rule.repeatPips and RepeatDefinitions(entry.id,entry.cost,maxEnergy,cfg.maxPips,cfg.regen,cfg.fraction,cfg.repeatCount=="additional") or {}
     for _,d in ipairs(FollowDefinitions(entry,rule)) do defs[#defs+1]=d end
     if #defs==0 then if tracked[record] then tracked[record].count=0 end; Clear(record); return end
     local r=tracked[record]
@@ -253,7 +261,8 @@ local function Setup(record,entry)
     local repeatCount,followCount=0,0
     for _,d in ipairs(defs) do if d.kind=="repeat" then repeatCount=repeatCount+1 else followCount=followCount+1 end end
     local function Fit(count)
-        local gap=math.min(cfg.spacing,math.max(1,(width-2)/math.max(1,count)*.25))
+        if cfg.placement=="outside" then return cfg.size,cfg.spacing end
+        local gap=math.min(cfg.spacing,math.max(0,(width-2)/math.max(1,count)*.25))
         local size=math.max(2,math.min(cfg.size,(width-2-(count-1)*gap)/math.max(1,count)))
         return size,gap
     end
@@ -265,25 +274,36 @@ local function Setup(record,entry)
             p=NewPip(r.frame); r.pips[i]=p
         end
         StopPulse(p)
-        local texture=d.kind=="repeat" and CIRCLE or (d.warning and WARNING or DIAMOND)
+        local repeatTexture=cfg.repeatShape=="square" and WHITE or cfg.repeatShape=="diamond" and DIAMOND or CIRCLE
+        local texture=d.kind=="repeat" and repeatTexture or (d.warning and WARNING or DIAMOND)
         local size,gap=repeatSize,repeatGap
         if d.kind=="follow" then size,gap=followSize,followGap end
         p.frame:SetSize(size,size); p.frame:ClearAllPoints()
+        local count=d.kind=="repeat" and repeatCount or followCount
+        local rowWidth=count*size+math.max(0,count-1)*gap
+        local left=cfg.align=="center" and (width-rowWidth)/2 or cfg.align=="right" and width-rowWidth-1 or 1
+        local x=left+(d.n-1)*(size+gap)
         if d.kind=="repeat" then
-            p.frame:SetPoint("TOPLEFT",r.frame,"TOPLEFT",1+(d.n-1)*(size+gap),cfg.offset-1)
+            if cfg.placement=="outside" then p.frame:SetPoint("BOTTOMLEFT",r.frame,"TOPLEFT",x,2+cfg.offset)
+            else p.frame:SetPoint("TOPLEFT",r.frame,"TOPLEFT",x,cfg.offset-1) end
         else
-            p.frame:SetPoint("BOTTOMLEFT",r.frame,"BOTTOMLEFT",1+(d.n-1)*(size+gap),-cfg.offset+1)
+            if cfg.placement=="outside" then p.frame:SetPoint("TOPLEFT",r.frame,"BOTTOMLEFT",x,-2-cfg.offset)
+            else p.frame:SetPoint("BOTTOMLEFT",r.frame,"BOTTOMLEFT",x,-cfg.offset+1) end
         end
-        p.bg:SetTexture(texture); p.bg:SetVertexColor(.15,.13,.11,.85)
+        p.bg:SetTexture(texture); p.bg:SetVertexColor(.15,.13,.11,cfg.inactiveOpacity)
+        p.outline:ClearAllPoints(); p.outline:SetPoint("TOPLEFT",p.frame,"TOPLEFT",-cfg.outline,cfg.outline); p.outline:SetPoint("BOTTOMRIGHT",p.frame,"BOTTOMRIGHT",cfg.outline,-cfg.outline)
+        p.outline:SetTexture(d.warning and DIAMOND or texture); p.outline:SetVertexColor(0,0,0,1)
+        if cfg.outline>0 then p.outline:Show() else p.outline:Hide() end
         p.bar:SetStatusBarTexture(texture)
-        local color=GetColor(d.id); p.bar:SetStatusBarColor(color[1],color[2],color[3],1)
+        local color=GetColor(d.id); local light=cfg.brightness
+        p.bar:SetStatusBarColor(color[1]+(1-color[1])*light,color[2]+(1-color[2])*light,color[3]+(1-color[3])*light,1)
         p.warning=d.warning==true
         if p.warning then
             p.curve,p.key=WarningCurve(d.lo,d.hi)
             p.alphaCurve,p.alphaKey=p.curve,p.key
             p.bg:Hide(); p.bar:SetValue(1); p.frame:SetAlpha(0)
         else
-            p.bg:Show(); p.curve,p.key=Curve(d.lo,d.hi,d.partial and d.hi>d.lo)
+            if cfg.inactiveOpacity>0 then p.bg:Show() else p.bg:Hide() end; p.curve,p.key=Curve(d.lo,d.hi,d.partial and d.hi>d.lo)
             -- Hide-inactive uses a separate readiness curve, not a Lua test on energy.
             p.alphaCurve,p.alphaKey=Curve(0,d.partial and math.min(d.hi,d.lo+.5) or d.hi,false)
             p.bar:SetValue(0); p.frame:SetAlpha(1)
@@ -295,7 +315,7 @@ end
 function C.Sync(records,max)
     if not cfg or not api then return end
     Remember(records); maxEnergy=max
-    local bits={tostring(cfg.enabled),tostring(cfg.repeatEnabled),cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),tostring(cfg.pulseWarnings),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max}
+    local bits={tostring(cfg.enabled),tostring(cfg.repeatEnabled),cfg.repeatCount,cfg.placement,cfg.align,cfg.repeatShape,cfg.outline,cfg.brightness,cfg.inactiveOpacity,cfg.template,tostring(cfg.fraction),tostring(cfg.hideInactive),tostring(cfg.pulseWarnings),cfg.size,cfg.spacing,cfg.opacity,cfg.offset,cfg.regen,cfg.maxPips,max}
     for _,e in ipairs(ordered) do
         local r=Rule(e); bits[#bits+1]=e.id..":"..e.cost..":"..tostring(r.repeatPips)..":"..select(2,GetColor(e.id))
         bits[#bits+1]="global:"..tostring(cfg.globalFollow[e.id])
@@ -339,7 +359,7 @@ function C.Update(record,eligible)
                     if cfg.pulseWarnings and p.pulse and not p.pulsing then p.pulse:Play(); p.pulsing=true end
                 else
                 p.bar:SetValue(value)
-                if cfg.hideInactive then
+                if cfg.hideInactive or cfg.inactiveOpacity==0 then
                     local alpha,good=Sample(p.alphaCurve,p.alphaKey)
                     if good then p.frame:SetAlpha(alpha) else p.frame:SetAlpha(0) end
                 else p.frame:SetAlpha(1) end
@@ -359,6 +379,7 @@ end
 function C.Command(arg)
     if arg=="on" then cfg.enabled=true
     elseif arg=="off" then cfg.enabled=false
+    elseif arg=="additional" or arg=="total" then cfg.repeatCount=arg
     elseif arg=="kick" then
         for _,e in ipairs(ordered) do if e.name=="Kick" then
             local count=0; for _ in pairs(cfg.globalFollow) do count=count+1 end

@@ -521,7 +521,6 @@ assert(tracker.Sync({tracked[3]},100)); assert(tracker.Costs()[35] and not track
 tracker.Command("off"); assert(tracker.Sync(tracked,100)); assert(not tracker.Begin(false) and trackerDB.tracker.actionBars)
 print("PASS: all five tracker layouts, protected group forwarding, manual selection, ready effects and disabled lifecycle")
 
-assert(loadfile("addon/RogueEnergySweep/GCD.lua"))
 assert(loadfile("addon/RogueEnergySweep/Chains.lua"))
 local chainFile=assert(io.open("addon/RogueEnergySweep/Chains.lua")); local chainSrc=chainFile:read("*a"); chainFile:close()
 local first=assert(chainSrc:find("local function RepeatThreshold",1,true)); local last=assert(chainSrc:find("local function GetColor",first,true))
@@ -538,22 +537,6 @@ assert(#bp==5 and bp[1]==0 and bp[2]==25 and bp[3]==45 and bp[4]==60 and bp[5]==
 bp=points({{cost=25},{cost=35},{cost=45},{cost=60}},100)
 assert(#bp==6 and bp[3]==35)
 print("PASS: unique breakpoint costs, over-cap handling and talent change")
-local gcdNS={}
-local gcdEnv=setmetatable({C_CurveUtil=env.C_CurveUtil,issecretvalue=env.issecretvalue,GetPowerRegen=function() return 10,10 end,
-    C_Spell={GetSpellCooldownDuration=function() return {GetRemainingDuration=function() return 1 end} end,
-        GetSpellCooldown=function(id) return {isOnGCD=id==1} end}},{__index=_G})
-assert(loadfile("addon/RogueEnergySweep/GCD.lua","t",gcdEnv))("RogueEnergySweep",gcdNS)
-local gcd=gcdNS.GCD
-gcd.Configure({safe=function(v) if type(v)=="number" then return v end end,secret=env.issecretvalue,evaluate=function(c) return eval(c,.55),true end})
-gcd.Init({gcdAware=true}); gcd.CooldownEvent({{spellID=1},{spellID=2}}); gcd.Begin(100,false)
-local gf,gd,gv,gr,projected=gcd.Project(1,60,.55/ .6,1-.55/.6,1,0,false)
-near(gf,1); near(gd,0); near(gv,0); near(gr,1); assert(projected)
-gf,gd,gv,gr,projected=gcd.Project(2,60,.5,.5,1,0,false); near(gf,.5); near(gv,1); assert(not projected)
-gf,gd,gv,gr,projected=gcd.Project(1,60,secret,secret,1,0,true); assert(rawequal(gf,secret) and rawequal(gd,secret)); near(gv,0); assert(projected)
-gcdEnv.C_Spell.GetSpellCooldownDuration=function() return {GetRemainingDuration=function() return secret end} end
-gcd.Begin(100,false); gf,gd,gv,gr,projected=gcd.Project(1,60,.5,.5,1,0,false); near(gf,.5); assert(not projected)
-print("PASS: GCD projection, off-GCD exclusion, native countdown preservation and protected fallback")
-
 -- Run the real new breakpoint layouts with the previous native frame mock.
 trackerDB.tracker.auto=true
 for _,name in ipairs({"segments","staircase","lights","arc"}) do
@@ -587,14 +570,15 @@ local cb2={spellID=2,cost=60,category="builder",comboGate=trackerWidget(nil,"Fra
 chains.Sync({cb1,cb2},100); chains.Begin(); chains.Update(cb1,true)
 local bars=0
 for _,w in ipairs(chainWidgets) do if w.kind=="StatusBar" then bars=bars+1; assert(rawequal(w.SetValueArgs[1],secret)) end end
-assert(bars==4 and reads==4, "expected three repeat pips including partial third, one follow-up")
+assert(chainDB.chains.repeatCount=="additional")
+assert(bars==3 and reads==3, "expected two additional pips including partial third cast, one follow-up")
 chains.Begin(); chains.Update(cb1,false)
 assert(not chainWidgets[1].shown)
 chainDB.chains.rules[1]={repeatPips=false,follow={}}
 chains.Sync({cb1,cb2},100); chains.Begin(); chains.Update(cb1,true)
 assert(not chainWidgets[1].shown)
 assert(chains.Status():find("last error none",1,true),chains.Status())
-print("PASS: native Ability Chains widgets, protected samples, three repeat slots, follow-up, and stale rule cleanup")
+print("PASS: native Ability Chains widgets, protected samples, additional repeat slots, follow-up, and stale rule cleanup")
 
 -- Arsenal shares the real Chains settings and curve builder.
 trackerNS.Chains=chains
@@ -801,25 +785,24 @@ end)()
     print("PASS: independent repeat-pip switch, Arsenal independence and new local/global settings API")
 end)()
 
+
 ;(function()
-    local n={}; local protected=false; local active=true; local rate=10; local calls={}
-    local e=setmetatable({C_CurveUtil=env.C_CurveUtil,GetTime=function() return 100 end,GetPowerRegen=function() return rate,rate end,
-        C_Spell={DoesSpellExist=function(id) return id==29515 end,
-        GetSpellCooldown=function(id) if id==29515 then return {isActive=active,startTime=protected and secret or 100,duration=protected and secret or 1,modRate=1} end return {isOnGCD=id==1 and active} end,
-        GetSpellCooldownDuration=function(id) calls[#calls+1]=id; return {GetRemainingDuration=function() return protected and secret or (active and 1 or 0) end} end}}, {__index=_G})
-    assert(loadfile("addon/RogueEnergySweep/GCD.lua","t",e))("RogueEnergySweep",n)
-    local g=n.GCD; g.Configure({safe=function(v) if type(v)=="number" then return v end end,secret=env.issecretvalue,evaluate=function(c) return eval(c,.55),true end})
-    local db={gcdAware=true}; g.Init(db); g.CooldownEvent({{spellID=1},{spellID=2}}); g.Begin(100,false)
-    local f,d,v,r,p=g.Project(1,60,.9,.1,1,0,false)
-    assert(p and v==0 and r==1 and calls[1]==29515)
-    f,d,v,r,p=g.Project(2,60,.9,.1,1,0,false); assert(not p and v==1)
-    protected=true; g.Begin(100,false)
-    f,d,v,r,p=g.Project(1,60,.9,.1,1,0,false)
-    assert(not p and v==1 and f==.9 and g.Status():find("protected",1,true))
-    protected=false; rate=secret; g.Begin(100,false)
-    f,d,v,r,p=g.Project(1,60,.9,.1,1,0,false); assert(not p and v==1)
-    rate=10; active=false; g.CooldownEvent({{spellID=1}}); g.Begin(100,false)
-    f,d,v,r,p=g.Project(1,60,.9,.1,1,0,false); assert(not p and v==1)
-    db.gcdAware=false; g.Begin(100,false); f,d,v,r,p=g.Project(1,60,.9,.1,1,0,false); assert(not p and v==1)
-    print("PASS: Forever GCD source, accurate public prediction, protected inputs preserve deficits, off-GCD and disable")
+    local extra=chains.RepeatDefinitions(3,45,100,4,10,true,true)
+    local total=chains.RepeatDefinitions(3,45,100,4,10,true,false)
+    assert(#extra==2 and extra[1].n==1 and extra[1].casts==2 and extra[1].lo==45 and extra[1].hi==80)
+    assert(#total==3 and total[1].hi==45 and total[2].hi==80)
+    local c=chains.BuildPipCurve(extra[1].lo,extra[1].hi,true,100)
+    near(eval(c,.45),0); near(eval(c,.8),1); near(eval(c,.625),.5)
+    assert(#chains.RepeatDefinitions(3,60,100,4,10,false,true)==0)
+    assert(#chains.RepeatDefinitions(3,60,100,4,10,true,true)==1)
+    assert(#chains.RepeatDefinitions(3,120,100,4,10,true,true)==0)
+    local zero=chains.RepeatDefinitions(3,10,100,3,10,true,true)
+    assert(#zero==3 and zero[1].hi==10 and zero[1].lo==10)
+    local d={chains={enabled=true,repeatCount="total",size=24,placement="outside",repeatShape="square",align="center",outline=3,brightness=.25,inactiveOpacity=.4}}
+    chains.Init(d); assert(d.chains.repeatCount=="total" and d.chains.size==24 and d.chains.outline==3)
+    assert(chains.Command("additional")); assert(d.chains.repeatCount=="additional")
+    assert(#chains.ArsenalSpec({spellID=1,cost=45,name="Sinister Strike",category="builder"},100,false).defs==3)
+    assert(chains.Command("total")); assert(d.chains.repeatCount=="total")
+    assert(not src:find("GCD.Project",1,true) and not src:find("GCD.Begin",1,true))
+    print("PASS: additional/total thresholds, partial pips, over-cap and zero marginal costs, visibility preferences, Arsenal independence and GCD retirement")
 end)()

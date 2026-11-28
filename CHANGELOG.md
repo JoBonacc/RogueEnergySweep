@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.21.0
+- Ability planning repeat pips now represent additional casts by default; choose Total casts to include the first. Standalone Arsenal continues to show total casts. Follow-up opportunities and warning thresholds are unchanged.
+- New action-button pip visibility controls: outside/inside placement, alignment, circle/square/diamond repeat shapes, size up to 24px, spacing, contrast outline, brightness, inactive opacity, expanded offset. Existing colors and rules retained.
+- Retire GCD-aware energy prediction, including saved flag, options, runtime hooks and module. Actual-energy sweep and planning's explicit regeneration assumption remain independent.
+
 ## v0.20.2
 - Remove GCD-wide visual suppression and estimated cast-event holds. Accurate prediction only when public GCD duration and regeneration are readable. Prefer Forever's TEST Scorch (29515) over the Retail GCD dummy. Diagnostics record timing availability and actual projections; real deficits are never hidden by a fallback. In-combat projection remains unverified.
 

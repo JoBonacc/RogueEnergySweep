@@ -689,9 +689,6 @@ function T.Group(cost,group,fill,deficit,visibility,ready,valid,direct,combo,com
         local ok,err=pcall(function()
             if not valid then ClearRow(row); return end
             local fill,deficit,visibility,ready=fill,deficit,visibility,ready
-            if api.project and cfg.layout~="dial" and not demo then
-                fill,deficit,visibility,ready,row.overlay.gcdProjected=api.project(row.spellID,cost,fill,deficit,visibility,ready,db.progress=="countdown")
-            end
             local c=1
             if comboEnabled and row.finisher then c=combo end
             local cd=1
