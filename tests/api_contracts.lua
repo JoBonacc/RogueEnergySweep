@@ -893,3 +893,25 @@ end)()
     assert(src:find("TRAIT_CONFIG_UPDATED",1,true) and src:find("Chains.InvalidateTalents()",1,true))
     print("PASS: per-relationship automatic timing, active trait ranks, cache invalidation, target combo points, protected values, safety margin and migration")
 end)()
+
+;(function()
+    local ns={}; local scripts={}; local registered={}; local clock=0
+    local frame={RegisterEvent=function(_,e) registered[e]=true end,UnregisterAllEvents=function() registered={} end,SetScript=function(_,k,v) scripts[k]=v end}
+    local e=setmetatable({issecretvalue=function(v) return v==secret end,GetTime=function() return clock end,CreateFrame=function() return frame end,
+        GetBuildInfo=function() return "1.60.1","71091","date",16001 end,
+        UnitPower=function() return secret end,UnitPowerMax=function() return 100 end,GetComboPoints=function() return 3 end,GetPowerRegenForPowerType=function() return secret,secret end,
+        C_Secrets={GetPowerTypeSecrecy=function(p) return p==4 and 0 or 2 end,ShouldUnitStatsBeSecret=function() return true end},
+        C_Spell={GetSpellPowerCost=function() return {{type=3,cost=secret,minCost=45,requiredAuraID=1,hasRequiredAura=false}} end},
+        C_UnitAuras={GetAuraDataBySpellName=function() return nil end}}, {__index=_G})
+    assert(loadfile("addon/RogueEnergySweep/APIDiagnostics.lua","t",e))("RogueEnergySweep",ns)
+    local D=ns.APIDiagnostics
+    D.Configure({spells=function() return {999} end})
+    local report=D.SelfTest(); assert(report:find("energy=<secret>",1,true)); assert(report:find("regen=<secret> / <secret>",1,true)); assert(report:find("spell 999",1,true)); assert(report:find("hasRequiredAura=false",1,true))
+    assert(D.Start()); assert(registered.UNIT_SPELLCAST_SUCCEEDED); assert(not D.Start())
+    scripts.OnEvent(frame,"UNIT_SPELLCAST_SUCCEEDED","player",nil,secret)
+    clock=1; scripts.OnUpdate(frame,.3); D.Stop()
+    assert(D.Report():find("spell=<secret>",1,true)); assert(not scripts.OnUpdate and next(registered)==nil)
+    assert(D.Start()); for i=1,500 do if scripts.OnEvent then scripts.OnEvent(frame,"PLAYER_TARGET_CHANGED") end end
+    assert(D.Status():find("limit reached",1,true)); assert(not scripts.OnUpdate)
+    print("PASS: opt-in API diagnostics, secret-safe formatting, read-only snapshots, event capture, bounded recording and cleanup")
+end)()

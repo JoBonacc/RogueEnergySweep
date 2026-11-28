@@ -1,4 +1,4 @@
--- Rogue Energy Sweep 0.23.1 (WoW Forever)
+-- Rogue Energy Sweep 0.24.0 (WoW Forever)
 -- Action discovery and energy curve approach adapted from Rogue Energy Need 0.2.1
 -- by Vryllak / Rogue Energy Need contributors (MIT; see LICENSE).
 local ADDON_NAME, ns = ...
@@ -1425,7 +1425,7 @@ local function DiagnosticReport()
         for _,record in ipairs(records) do if record.cost and record.cost>0 and record.fillEffectActual~=DB.fillEffect then fillFallback=fillFallback+1 end end
     end
     local lines={
-        "Rogue Energy Sweep v0.21.1 diagnostic report",
+        "Rogue Energy Sweep v0.24.0 diagnostic report",
         "Client build: "..tostring(ClientBuild() or "unknown").." | interface: "..tostring(interface or "unknown").." ("..state..")",
         "Reviewed baseline: "..KNOWN_BUILD.." | complete live checklist: "..tostring(LAST_TESTED_BUILD or "not recorded"),
         "Bar addons detected: "..(#providers>0 and table.concat(providers,", ") or "none of the three known providers"),
@@ -2001,7 +2001,7 @@ local function OpenOptions()
     else Say("Settings unavailable; use /resweep help.") end
 end
 local function Help()
-    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | fill solid/gradient/luminous | ready none/burst/flash/proc/halo/border/pulse/softflash | tracker | chains | resetstyle | reset")
+    Say("/resweep options | status | demo | on | off | rescan | combat | finishers on/off | cooldowns on/off | filters | diagnostics | selftest | api start/stop/test | profile on/off | opacity 90 | color preset/#RRGGBB | mode rising/bar/perimeter/radial | progress energy/countdown | thickness 4 | reverse | tintopacity 15 | fill solid/gradient/luminous | ready none/burst/flash/proc/halo/border/pulse/softflash | tracker | chains | resetstyle | reset")
 end
 SLASH_ROGUEENERGYSWEEP1 = "/resweep"
 SlashCmdList.ROGUEENERGYSWEEP = function(msg)
@@ -2012,6 +2012,7 @@ SlashCmdList.ROGUEENERGYSWEEP = function(msg)
     elseif cmd == "status" then Status(); return
     elseif cmd == "filters" then if Options and Options.Open("bars","filters") then return end; OpenAbilityFilters(); return
     elseif cmd == "diagnostics" then OpenDiagnostics(); return
+    elseif (cmd=="selftest" or cmd=="api") and ns.APIDiagnostics then ns.APIDiagnostics.Command(cmd=="selftest" and "test" or arg); return
     elseif cmd=="gcd" then
         Say("GCD prediction retired: current energy is displayed."); return
     elseif cmd=="chains" and Chains then
@@ -2093,6 +2094,7 @@ if Tracker then
     })
 end
 if Chains then Chains.Configure({safe=SafeNumber,secret=IsSecret,excluded=IsExcluded,evaluate=Evaluate,apply=ApplySettings}) end
+if ns.APIDiagnostics then ns.APIDiagnostics.Configure({say=Say,spells=function() local out={}; for _,r in ipairs(records) do if r.spellID then out[#out+1]=r.spellID end end; return out end}) end
 if Options then Options.Configure({
     db=function() return DB end, apply=ApplySettings, scan=RequestScan, say=Say,
     style=SetStyle, progress=SetProgress, resetStyle=ResetAppearance, color=ResolveColor,

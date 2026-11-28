@@ -103,3 +103,6 @@ Each local relationship has Next GCD (1 second), Control window (known Gouge, Ch
 
 ## v0.23.1
 Improved Gouge reads active combat trait configuration and active rank (not legacy talent tabs). If lookup fails, the control prediction is unavailable rather than assuming zero talent ranks. Combo-point API confirmed readable by user in ordinary combat.
+
+## API diagnostics (v0.24.0)
+/resweep selftest runs a live API snapshot; /resweep api opens the report and recording controls. /resweep api start and /resweep api stop work without the settings window. Record a short sequence including Poised gain/consumption, Shank, or regeneration. Select all then Ctrl+C. Reports distinguish secret, nil, missing and error. Recording is opt-in, session-only, bounded to 480 changed or forced snapshots; includes player resources, selected aura queries, spell costs and public cast spell IDs, no target names/GUIDs or chat. /resweep api spell 123 adds a spell ID for the next session. Native sink acceptance is not a visual test. No gameplay model changes.

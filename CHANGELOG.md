@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.24.0
+- Add opt-in API diagnostics, live self-test, bounded session-only combat recording and copyable report. No gameplay prediction changes.
+- Fix stale version label in existing diagnostics.
+
 ## v0.23.1
 - Fix Improved Gouge lookup using Forever active combat trait config and active rank; cache and refresh on talent/config changes. No guessed zero rank if lookup fails.
 - Record live combo-point secrecy verification; continue using actual target combo points in combat.
